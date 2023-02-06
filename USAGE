@@ -1,0 +1,25 @@
+nat columnates a list, like ls does with filenames. It reads its input from
+standard input, and takes the following options:
+
+-d DELIM
+	DELIM delimits input items. Newline by default.
+
+-w WIDTH
+	Output is WIDTH spaces wide. Width of the terminal, $COLUMNS, or 80 by
+	default. -1 means one less than the default value.
+
+-p PADDING
+	Pad columns by PADDING spaces. 2 by default.
+
+nat returns 0 on success, 1 if its input is wider than the implied or specified
+width, and 2 on error.
+
+An example:
+
+	$ grep ^rog /usr/share/dict/american-english | nat
+	roger    rogering  rogue    roguery's  rogues   roguishly               
+	rogered  rogers    roguery  rogue's    roguish                          
+
+See also:
+* mc from plan9 <https://9p.io/sources/plan9/sys/src/cmd/mc.c>
+* cols from sbase <http://git.suckless.org/sbase/file/cols.c.html>
