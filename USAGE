@@ -11,6 +11,9 @@ standard input, and takes the following options:
 -p PADDING
 	Pad columns by PADDING spaces. 2 by default.
 
+-a
+	Fill rows instead of columns.
+
 nat returns 0 on success, 1 if its input is wider than the implied or specified
 width, and 2 on error.
 

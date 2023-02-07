@@ -61,6 +61,7 @@ size_t list_cap;
 wint_t delim;
 size_t term_width;
 size_t padding;
+int across;
 
 size_t num_rows;
 size_t num_cols;
@@ -134,7 +135,7 @@ parse_args(int argc, char *argv[]) {
 	int opt;
 	wchar_t c;
 
-	while ((opt = getopt(argc, argv, ":d:w:p:")) != -1)
+	while ((opt = getopt(argc, argv, ":d:w:p:a")) != -1)
 		switch (opt) {
 		case 'd':
 			if (mbtowc(&c, optarg, MB_CUR_MAX) == -1)
@@ -153,9 +154,12 @@ parse_args(int argc, char *argv[]) {
 			if (!parse_size_arg(optarg, &padding))
 				die(optarg);
 			break;
+		case 'a':
+			across = 1;
+			break;
 		default:
 			fprintf(stderr, "\
-Usage: %s [-d delimiter] [-w width] [-p padding]\n", argv[0]);
+Usage: %s [-d delimiter] [-w width] [-p padding] [-a]\n", argv[0]);
 			exit(2);
 		}
 }
@@ -185,7 +189,7 @@ slurp_input(void) {
 
 static void
 parse_list(void) {
-	int i;
+	size_t i;
 	int width;
 	struct item item;
 
@@ -250,6 +254,20 @@ max_width(size_t col) {
 }
 
 static size_t
+max_width_across(size_t col) {
+	size_t i;
+	size_t max;
+
+	max = 0;
+
+	for (i = col; i < list_len; i += num_cols)
+		if (list[i].width > max)
+			max = list[i].width;
+
+	return max;
+}
+
+static size_t
 calc_other(size_t x) {
 	size_t y;
 
@@ -261,46 +279,66 @@ calc_other(size_t x) {
 }
 
 static void
-init_calc() {
+init_calc(void) {
 	size_t max_cols;
-
-	init_lut();
 
 	if (padding == 0)
 		max_cols = list_len;
 	else
 		max_cols = MIN((term_width / padding) + 1, list_len);
 
+	if (across) {
+		num_cols = max_cols;
+	}
+	else {
+		init_lut();
+		num_rows = calc_other(max_cols);
+	}
+
 	col_widths = xmalloc(max_cols * sizeof col_widths[0]);
-	num_rows = calc_other(max_cols);
 }
 
-static void
-calc_rows(void) {
+static int
+fits(size_t (*max_func)(size_t)) {
 	size_t width;
 	size_t i;
 
+	width = (num_cols - 1) * padding;
+
+	for (i = 0; i < num_cols; i++) {
+		if (width > term_width)
+			break;
+
+		width += max_func(i);
+	}
+
+	if (width <= term_width) {
+		for (i = 0; i < num_cols; i++)
+			col_widths[i] = max_func(i);
+		
+		space_left = term_width - width;
+		return 1;
+	}
+
+	return 0;
+}
+
+static void
+calc_dimens(void) {
 	init_calc();
 
-	for (; num_rows <= list_len; num_rows++) {
-		num_cols = calc_other(num_rows);
-		width = (num_cols - 1) * padding;
-
-		for (i = 0; i < num_cols; i++) {
-			if (width > term_width)
-				break;
-
-			width += max_width(i);
+	if (across)
+		for (; num_cols >= 1; num_cols--) {
+			num_rows = calc_other(num_cols);
+			if (fits(max_width_across))
+				return;
 		}
-
-		if (width <= term_width) {
-			for (i = 0; i < num_cols; i++)
-				col_widths[i] = max_width(i);
-			
-			space_left = term_width - width;
-			return;
+	else
+		for (; num_rows <= list_len; num_rows++) {
+			num_cols = calc_other(num_rows);
+			if (fits(max_width))
+				return;
 		}
-	}
 
 	num_rows = list_len;
 	num_cols = 1;
@@ -326,7 +364,11 @@ static void
 print_cell(size_t row, size_t col) {
 	size_t i;
 
-	i = (col * num_rows) + row;
+	if (across)
+		i = (row * num_cols) + col;
+	else
+		i = (col * num_rows) + row;
+
 	if (i >= list_len) {
 		pad(col_widths[col], 0);
 	}
@@ -345,9 +387,10 @@ print_cols(void) {
 			print_cell(i, j);
 			pad(padding, 0);
 		}
-		
+
 		print_cell(i, j);
 		pad(space_left, 0);
+
 		putwchar(L'\n');
 	}
 }
@@ -359,7 +402,7 @@ main(int argc, char *argv[]) {
 	parse_args(argc, argv);
 	slurp_input();
 	parse_list();
-	calc_rows();
+	calc_dimens();
 	print_cols();
 	return status;
 }

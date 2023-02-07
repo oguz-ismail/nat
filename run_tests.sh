@@ -141,3 +141,10 @@ environment=
 expected_output='xx  x  xx\nx   x  x \nx   x  xx\n'
 expected_status=0
 run_test 'edge case #1'
+
+input='x\ny\nx\n'
+arguments='-w 4 -a'
+environment=
+expected_output='x  y\nx   \n'
+expected_status=0
+run_test -a
