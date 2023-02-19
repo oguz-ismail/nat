@@ -14,12 +14,12 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#if __sun || __USLC__
+#if defined(__sun) || defined(__USLC__)
 #include <stropts.h>
 #include <termios.h>
 #endif
 
-#if __QNX__
+#if defined(__QNX__)
 #include "wcwidth.c"
 #define wcwidth mk_wcwidth
 #else
@@ -39,7 +39,7 @@
 
 #define TERM_WIDTH 80
 
-#define BUF_ALLOC  512
+#define BUF_ALLOC 512
 #define LIST_ALLOC 32
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -50,25 +50,25 @@ struct item {
 	size_t width;
 };
 
-wchar_t *buf;
-size_t buf_len;
-size_t buf_cap;
+static wchar_t *buf;
+static size_t buf_len;
+static size_t buf_cap;
 
-struct item *list;
-size_t list_len;
-size_t list_cap;
+static struct item *list;
+static size_t list_len;
+static size_t list_cap;
 
-wint_t delim;
-size_t term_width;
-size_t padding;
-int across;
+static wchar_t delim;
+static size_t term_width;
+static size_t padding;
+static int across;
 
-size_t num_rows;
-size_t num_cols;
-size_t *col_widths;
-size_t space_left;
+static size_t num_rows;
+static size_t num_cols;
+static size_t *col_widths;
+static size_t space_left;
 
-int status;
+static int status;
 
 static void die(const char *);
 static void *xmalloc(size_t);
@@ -106,10 +106,18 @@ parse_size(const char *src, char **endptr, int base, size_t *dest) {
 }
 
 static int
-parse_size_arg(const char *s, size_t *dest) {
+parse_size_arg(const char *src, size_t *dest) {
 	char *end;
 
-	return (parse_size(s, &end, 10, dest) && end != s && *end == '\0');
+	if (!parse_size(src, &end, 10, dest)) {
+		return 0;
+	}
+	else if (end == src || *end != '\0') {
+		errno = EINVAL;
+		return 0;
+	}
+
+	return 1;
 }
 
 static void
@@ -133,30 +141,30 @@ set_defaults(void) {
 static void
 parse_args(int argc, char *argv[]) {
 	int opt;
-	wchar_t c;
 
 	while ((opt = getopt(argc, argv, ":d:w:p:a")) != -1)
 		switch (opt) {
 		case 'd':
-			if (mbtowc(&c, optarg, MB_CUR_MAX) == -1)
+			if (mbtowc(&delim, optarg, MB_CUR_MAX) == -1)
 				die("-d");
-			delim = c;
 			break;
+
 		case 'w':
-			if (strcmp(optarg, "-1") == 0 && term_width > 0) {
+			if (strcmp(optarg, "-1") == 0 && term_width > 0)
 				term_width--;
-				break;
-			}
-			if (!parse_size_arg(optarg, &term_width))
+			else if (!parse_size_arg(optarg, &term_width))
 				die(optarg);
 			break;
+
 		case 'p':
 			if (!parse_size_arg(optarg, &padding))
 				die(optarg);
 			break;
+
 		case 'a':
 			across = 1;
 			break;
+
 		default:
 			fprintf(stderr, "\
 Usage: %s [-d delimiter] [-w width] [-p padding] [-a]\n", argv[0]);
@@ -222,7 +230,7 @@ parse_list(void) {
 	}
 }
 
-size_t *next_wider;
+static size_t *next_wider;
 
 static void
 init_lut(void) {
@@ -232,7 +240,6 @@ init_lut(void) {
 
 	for (i = list_len; i-- > 0; ) {
 		j = i + 1;
-
 		while (j < list_len && list[i].width >= list[j].width)
 			j = next_wider[j];
 
@@ -251,20 +258,6 @@ max_width(size_t col) {
 		i = next_wider[i];
 
 	return list[i].width;
-}
-
-static size_t
-max_width_across(size_t col) {
-	size_t i;
-	size_t max;
-
-	max = 0;
-
-	for (i = col; i < list_len; i += num_cols)
-		if (list[i].width > max)
-			max = list[i].width;
-
-	return max;
 }
 
 static size_t
@@ -299,7 +292,7 @@ init_calc(void) {
 }
 
 static int
-fits(size_t (*max_func)(size_t)) {
+fits(void) {
 	size_t width;
 	size_t i;
 
@@ -309,13 +302,45 @@ fits(size_t (*max_func)(size_t)) {
 		if (width > term_width)
 			break;
 
-		width += max_func(i);
+		width += max_width(i);
 	}
 
 	if (width <= term_width) {
 		for (i = 0; i < num_cols; i++)
-			col_widths[i] = max_func(i);
+			col_widths[i] = max_width(i);
 		
+		space_left = term_width - width;
+		return 1;
+	}
+
+	return 0;
+}
+
+static int
+fits_across(void) {
+	size_t width;
+	size_t i, col;
+
+	memset(col_widths, 0, num_cols * sizeof col_widths[0]);
+
+	width = (num_cols - 1) * padding;
+	col = 0;
+
+	for (i = 0; i < list_len; i++) {
+		if (width > term_width)
+			break;
+
+		if (list[i].width > col_widths[col]) {
+			width += list[i].width - col_widths[col];
+			col_widths[col] = list[i].width;
+		}
+
+		col++;
+		if (col == num_cols)
+			col = 0;
+	}
+
+	if (width <= term_width) {
 		space_left = term_width - width;
 		return 1;
 	}
@@ -330,13 +355,13 @@ calc_dimens(void) {
 	if (across)
 		for (; num_cols >= 1; num_cols--) {
 			num_rows = calc_other(num_cols);
-			if (fits(max_width_across))
+			if (fits_across())
 				return;
 		}
 	else
 		for (; num_rows <= list_len; num_rows++) {
 			num_cols = calc_other(num_rows);
-			if (fits(max_width))
+			if (fits())
 				return;
 		}
 
