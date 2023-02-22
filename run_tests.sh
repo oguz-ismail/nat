@@ -148,3 +148,10 @@ environment=
 expected_output='x  y\nx   \n'
 expected_status=0
 run_test -a
+
+input='x\n'
+arguments='-c 2'
+environment=
+expected_output='x  \n'
+expected_status=0
+run_test more columns than items

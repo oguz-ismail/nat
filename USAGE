@@ -1,12 +1,15 @@
-nat columnates a list, like ls does with filenames. It reads its input from
+nat columnates lists, like ls does with filenames. It reads its input from the
 standard input, and takes the following options:
 
 -d DELIM
 	DELIM delimits input items. Newline by default.
 
 -w WIDTH
-	Output is WIDTH spaces wide. Width of the terminal, $COLUMNS, or 80 by
-	default. -1 means one less than the default value.
+	Output is WIDTH characters wide. Width of the terminal, $COLUMNS, or 80
+	by default. -1 means one less than the default value.
+
+-c COLS
+	Output COLS columns. This option and -w are mutually exclusive.
 
 -p PADDING
 	Pad columns by PADDING spaces. 2 by default.
@@ -14,15 +17,17 @@ standard input, and takes the following options:
 -a
 	Fill rows instead of columns.
 
-nat returns 0 on success, 1 if its input is wider than the implied or specified
-width, and 2 on error.
+nat returns 0 on success, 1 if the number of output columns is not specified
+and input is wider than the implied or specified output width, and 2 on error.
 
-An example:
+Example: displaying the largest packages on my system in columns:
 
-	$ grep ^rog /usr/share/dict/american-english | nat
-	roger    rogering  rogue    roguery's  rogues   roguishly               
-	rogered  rogers    roguery  rogue's    roguish                          
+$ dpkg-query -f '${Installed-Size}\t${Package}\n' -W '*' | sort -nr | cut -f2 |
+ grep -v ^linux | head | nat -a
+aocc-compiler-3.2.0      thunderbird       gcc-12     chromium    cpp-12       
+openjdk-11-jre-headless  libreoffice-core  libllvm15  virtualbox  libllvm11    
+$ 
 
 See also:
-* mc from plan9 <https://9p.io/sources/plan9/sys/src/cmd/mc.c>
+* mc from Plan 9 <https://9p.io/sources/plan9/sys/src/cmd/mc.c>
 * cols from sbase <http://git.suckless.org/sbase/file/cols.c.html>

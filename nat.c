@@ -60,6 +60,7 @@ static size_t list_cap;
 
 static wchar_t delim;
 static size_t term_width;
+static int num_cols_set;
 static size_t padding;
 static int across;
 
@@ -142,7 +143,7 @@ static void
 parse_args(int argc, char *argv[]) {
 	int opt;
 
-	while ((opt = getopt(argc, argv, ":d:w:p:a")) != -1)
+	while ((opt = getopt(argc, argv, ":d:w:c:p:a")) != -1)
 		switch (opt) {
 		case 'd':
 			if (mbtowc(&delim, optarg, MB_CUR_MAX) == -1)
@@ -154,6 +155,18 @@ parse_args(int argc, char *argv[]) {
 				term_width--;
 			else if (!parse_size_arg(optarg, &term_width))
 				die(optarg);
+			num_cols_set = 0;
+			break;
+
+		case 'c':
+			if (!parse_size_arg(optarg, &num_cols)) {
+				die(optarg);
+			}
+			else if (num_cols == 0) {
+				errno = EINVAL;
+				die(optarg);
+			}
+			num_cols_set = 1;
 			break;
 
 		case 'p':
@@ -167,7 +180,7 @@ parse_args(int argc, char *argv[]) {
 
 		default:
 			fprintf(stderr, "\
-Usage: %s [-d delimiter] [-w width] [-p padding] [-a]\n", argv[0]);
+Usage: %s [-d delimiter] [-w width|-c columns] [-p padding] [-a]\n", argv[0]);
 			exit(2);
 		}
 }
@@ -252,8 +265,10 @@ max_width(size_t col) {
 	size_t i, n;
 
 	i = col * num_rows;
-	n = MIN(i + num_rows, list_len);
+	if (i >= list_len)
+		return 0;
 
+	n = MIN(i + num_rows, list_len);
 	while (next_wider[i] < n)
 		i = next_wider[i];
 
@@ -275,10 +290,16 @@ static void
 init_calc(void) {
 	size_t max_cols;
 
-	if (padding == 0)
-		max_cols = list_len;
-	else
-		max_cols = MIN((term_width / padding) + 1, list_len);
+	if (num_cols_set) {
+		term_width = SIZE_MAX;
+		max_cols = num_cols;
+	}
+	else {
+		if (padding == 0)
+			max_cols = list_len;
+		else
+			max_cols = MIN((term_width / padding) + 1, list_len);
+	}
 
 	if (across) {
 		num_cols = max_cols;
@@ -351,6 +372,19 @@ fits_across(void) {
 static void
 calc_dimens(void) {
 	init_calc();
+
+	if (num_cols_set) {
+		if (across) {
+			num_rows = calc_other(num_cols);
+			(void)fits_across();
+		}
+		else {
+			(void)fits();
+		}
+
+		space_left = 0;
+		return;
+	}
 
 	if (across)
 		for (; num_cols >= 1; num_cols--) {
