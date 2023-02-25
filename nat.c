@@ -39,14 +39,18 @@
 
 #define TERM_WIDTH 80
 
-#define BUF_ALLOC 512
-#define LIST_ALLOC 32
+#define BUF_CAP 512
+#define LIST_CAP 32
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 struct item {
 	const wchar_t *str;
 	size_t len;
+	size_t width;
+};
+
+struct col {
 	size_t width;
 };
 
@@ -66,9 +70,10 @@ static int across;
 
 static size_t num_rows;
 static size_t num_cols;
-static size_t *col_widths;
+static struct col *cols;
 static size_t space_left;
 
+static int binary;
 static int status;
 
 static void die(const char *);
@@ -189,16 +194,19 @@ static void
 slurp_input(void) {
 	wint_t c;
 
-	buf_cap = BUF_ALLOC;
+	buf_cap = BUF_CAP;
 	buf = xmalloc(buf_cap * sizeof buf[0]);
 
 	while ((c = getwchar()) != WEOF) {
+		if (c == L'\0')
+			binary = 1;
+
+		buf[buf_len++] = c;
+
 		if (buf_len >= buf_cap) {
 			buf_cap *= 2;
 			buf = xrealloc(buf, buf_cap * sizeof buf[0]);
 		}
-
-		buf[buf_len++] = c;
 	}
 
 	if (ferror(stdin))
@@ -214,7 +222,10 @@ parse_list(void) {
 	int width;
 	struct item item;
 
-	list_cap = LIST_ALLOC;
+	if (delim == L'\0')
+		binary = 0;
+
+	list_cap = LIST_CAP;
 	list = xmalloc(list_cap * sizeof list[0]);
 
 	for (i = 0; i < buf_len; i++) {
@@ -233,6 +244,9 @@ parse_list(void) {
 			item.len++;
 			item.width += width;
 		}
+
+		if (!binary)
+			buf[i] = L'\0';
 
 		if (list_len >= list_cap) {
 			list_cap *= 2;
@@ -290,16 +304,12 @@ static void
 init_calc(void) {
 	size_t max_cols;
 
-	if (num_cols_set) {
-		term_width = SIZE_MAX;
+	if (num_cols_set)
 		max_cols = num_cols;
-	}
-	else {
-		if (padding == 0)
-			max_cols = list_len;
-		else
-			max_cols = MIN((term_width / padding) + 1, list_len);
-	}
+	else if (padding == 0)
+		max_cols = list_len;
+	else
+		max_cols = MIN((term_width / padding) + 1, list_len);
 
 	if (across) {
 		num_cols = max_cols;
@@ -309,7 +319,7 @@ init_calc(void) {
 		num_rows = calc_other(max_cols);
 	}
 
-	col_widths = xmalloc(max_cols * sizeof col_widths[0]);
+	cols = xmalloc(max_cols * sizeof cols[0]);
 }
 
 static int
@@ -318,55 +328,51 @@ fits(void) {
 	size_t i;
 
 	width = (num_cols - 1) * padding;
+	if (width > term_width)
+		return 0;
 
 	for (i = 0; i < num_cols; i++) {
-		if (width > term_width)
-			break;
-
 		width += max_width(i);
+		if (width > term_width)
+			return 0;
 	}
 
-	if (width <= term_width) {
-		for (i = 0; i < num_cols; i++)
-			col_widths[i] = max_width(i);
+	for (i = 0; i < num_cols; i++)
+		cols[i].width = max_width(i);
 		
-		space_left = term_width - width;
-		return 1;
-	}
-
-	return 0;
+	space_left = term_width - width;
+	return 1;
 }
 
 static int
 fits_across(void) {
 	size_t width;
-	size_t i, col;
-
-	memset(col_widths, 0, num_cols * sizeof col_widths[0]);
+	size_t i, j;
 
 	width = (num_cols - 1) * padding;
-	col = 0;
+	if (width > term_width)
+		return 0;
 
+	for (i = 0; i < num_cols; i++)
+		cols[i].width = 0;
+
+	j = 0;
 	for (i = 0; i < list_len; i++) {
-		if (width > term_width)
-			break;
+		if (list[i].width > cols[j].width) {
+			width += list[i].width - cols[j].width;
+			if (width > term_width)
+				return 0;
 
-		if (list[i].width > col_widths[col]) {
-			width += list[i].width - col_widths[col];
-			col_widths[col] = list[i].width;
+			cols[j].width = list[i].width;
 		}
 
-		col++;
-		if (col == num_cols)
-			col = 0;
+		j++;
+		if (j == num_cols)
+			j = 0;
 	}
 
-	if (width <= term_width) {
-		space_left = term_width - width;
-		return 1;
-	}
-
-	return 0;
+	space_left = term_width - width;
+	return 1;
 }
 
 static void
@@ -374,6 +380,8 @@ calc_dimens(void) {
 	init_calc();
 
 	if (num_cols_set) {
+		term_width = SIZE_MAX;
+
 		if (across) {
 			num_rows = calc_other(num_cols);
 			(void)fits_across();
@@ -401,7 +409,7 @@ calc_dimens(void) {
 
 	num_rows = list_len;
 	num_cols = 1;
-	col_widths[0] = 0;
+	cols[0].width = 0;
 	status = 1;
 }
 
@@ -409,19 +417,20 @@ static void
 print_item(const struct item *item) {
 	size_t i;
 	
-	for (i = 0; i < item->len; i++)
-		putwchar(item->str[i]);
+	if (binary)
+		for (i = 0; i < item->len; i++)
+			putwchar(item->str[i]);
+	else
+		fputws(item->str, stdout);
 }
 
-static void
-pad(size_t n, size_t i) {
-	for (; i < n; i++)
-		putwchar(L' ');
-}
+static const wchar_t fill[] = L"        ";
+static const size_t fill_len = ((sizeof fill / sizeof fill[0]) - 1);
 
 static void
-print_cell(size_t row, size_t col) {
+print_cell(size_t row, size_t col, size_t pad) {
 	size_t i;
+	size_t width;
 
 	if (across)
 		i = (row * num_cols) + col;
@@ -429,12 +438,20 @@ print_cell(size_t row, size_t col) {
 		i = (col * num_rows) + row;
 
 	if (i >= list_len) {
-		pad(col_widths[col], 0);
+		width = 0;
 	}
 	else {
 		print_item(&list[i]);
-		pad(col_widths[col], list[i].width);
+		width = list[i].width;
 	}
+
+	if (width < cols[col].width)
+		pad += cols[col].width - width;
+
+	for (; pad > fill_len; pad -= fill_len)
+		fputws(fill, stdout);
+
+	fputws(&fill[fill_len - pad], stdout);
 }
 
 static void
@@ -442,14 +459,10 @@ print_cols(void) {
 	size_t i, j;
 
 	for (i = 0; i < num_rows; i++) {
-		for (j = 0; j < num_cols - 1; j++) {
-			print_cell(i, j);
-			pad(padding, 0);
-		}
+		for (j = 0; j < num_cols - 1; j++)
+			print_cell(i, j, padding);
 
-		print_cell(i, j);
-		pad(space_left, 0);
-
+		print_cell(i, j, space_left);
 		putwchar(L'\n');
 	}
 }

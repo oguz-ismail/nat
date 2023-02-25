@@ -20,10 +20,10 @@ standard input, and takes the following options:
 nat returns 0 on success, 1 if the number of output columns is not specified
 and input is wider than the implied or specified output width, and 2 on error.
 
-Example: displaying the largest packages on my system in columns:
+Example: displaying the largest packages on my system, in columns:
 
-$ dpkg-query -f '${Installed-Size}\t${Package}\n' -W '*' | sort -nr | cut -f2 |
- grep -v ^linux | head | nat -a
+$ dpkg-query -f '${Installed-Size}\t${Package}\n' -W \* | sort -nr | cut -f2 |
+grep -v ^linux | head | nat -a
 aocc-compiler-3.2.0      thunderbird       gcc-12     chromium    cpp-12       
 openjdk-11-jre-headless  libreoffice-core  libllvm15  virtualbox  libllvm11    
 $ 
