@@ -1,33 +1,31 @@
-nat columnates lists, like ls does with filenames. It reads its input from the
-standard input, and takes the following options:
+nat reads a list from the standard input and columnates it. It takes the
+following options:
 
 -d DELIM
-	DELIM delimits input items. Newline by default.
+	Input items are delimited by DELIM instead of newline.
 
 -w WIDTH
-	Output is WIDTH characters wide. Width of the terminal, $COLUMNS, or 80
-	by default. -1 means one less than the default value.
+	The output is WIDTH character columns wide. -1 means one less than the
+	default value; which is the width of the terminal, the value of the
+	environment variable COLUMNS, or 80.
 
 -c COLS
-	Output COLS columns. This option and -w are mutually exclusive.
+	COLS columns are printed. This and the option -w are mutually exclusive.
 
 -p PADDING
-	Pad columns by PADDING spaces. 2 by default.
+	Columns are separated by PADDING spaces instead of two.
 
 -a
-	Fill rows instead of columns.
+	Columns are filled across rather than down.
 
-nat returns 0 on success, 1 if the number of output columns is not specified
-and input is wider than the implied or specified output width, and 2 on error.
+If the number of columns is not specified and a list item is wider than the
+desired output width, nat returns 1.
 
-Example: displaying the largest packages on my system, in columns:
+Example: displaying the largest packages installed on a Debian system, in
+columns:
 
-$ dpkg-query -f '${Installed-Size}\t${Package}\n' -W \* | sort -nr | cut -f2 |
-grep -v ^linux | head | nat -a
+$ dpkg-query -W -f '${Installed-Size}\t${Package}\n' | sort -nr | cut -f 2 |
+> grep -v linux | head | nat -a
 aocc-compiler-3.2.0      thunderbird       gcc-12     chromium    cpp-12       
 openjdk-11-jre-headless  libreoffice-core  libllvm15  virtualbox  libllvm11    
-$ 
-
-See also:
-* mc from Plan 9 <https://9p.io/sources/plan9/sys/src/cmd/mc.c>
-* cols from sbase <http://git.suckless.org/sbase/file/cols.c.html>
+$
