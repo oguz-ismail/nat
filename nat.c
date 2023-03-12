@@ -38,8 +38,8 @@
 #include <wchar.h>
 
 #define TERM_WIDTH 80
-#define BUF_CAP 512
-#define LIST_CAP 32
+#define BUF_ALLOC 512
+#define LIST_ALLOC 32
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
@@ -55,11 +55,11 @@ struct col {
 
 static wchar_t *buf;
 static size_t buf_len;
-static size_t buf_cap;
+static size_t buf_alloc;
 
 static struct item *list;
 static size_t list_len;
-static size_t list_cap;
+static size_t list_alloc;
 
 static wchar_t delim;
 static size_t term_width;
@@ -128,7 +128,7 @@ parse_size_arg(const char *src, size_t *dest) {
 static void
 set_defaults(void) {
 	struct winsize ws;
-	const char *s;
+	const char *env;
 
 	delim = L'\n';
 	padding = 2;
@@ -137,8 +137,8 @@ set_defaults(void) {
 		term_width = ws.ws_col;
 	}
 	else {
-		s = getenv("COLUMNS");
-		if (!s || !parse_size_arg(s, &term_width))
+		env = getenv("COLUMNS");
+		if (!env || !parse_size_arg(env, &term_width))
 			term_width = TERM_WIDTH;
 	}
 }
@@ -154,7 +154,6 @@ parse_args(int argc, char *argv[]) {
 				die("-d");
 
 			break;
-
 		case 'w':
 			if (strcmp(optarg, "-1") == 0 && term_width > 0)
 				term_width--;
@@ -163,32 +162,28 @@ parse_args(int argc, char *argv[]) {
 
 			num_cols_fixed = 0;
 			break;
-
 		case 'c':
 			if (!parse_size_arg(optarg, &num_cols)) {
 				die(optarg);
 			}
 			else if (num_cols == 0) {
 				errno = EINVAL;
-				die(optarg);
+				die("-c");
 			}
 
 			num_cols_fixed = 1;
 			break;
-
 		case 'p':
 			if (!parse_size_arg(optarg, &padding))
 				die(optarg);
 
 			break;
-
 		case 'a':
 			across = 1;
 			break;
-
 		default:
-			fprintf(stderr, "\
-Usage: %s [-d delimiter] [-w width|-c columns] [-p padding] [-a]\n", argv[0]);
+			fprintf(stderr, "Usage: \
+%s [-d delimiter] [-w width|-c columns] [-p padding] [-a]\n", argv[0]);
 			exit(2);
 		}
 }
@@ -197,19 +192,20 @@ static void
 slurp_input(void) {
 	wint_t c;
 
-	buf_cap = BUF_CAP;
-	buf = xmalloc(buf_cap * sizeof buf[0]);
+	buf_alloc = BUF_ALLOC;
+	buf = xmalloc(buf_alloc * sizeof buf[0]);
 
 	while ((c = getwchar()) != WEOF) {
 		if (c == L'\0')
 			binary = 1;
 
-		if (buf_len >= buf_cap - 1) {
-			buf_cap *= 2;
-			buf = xrealloc(buf, buf_cap * sizeof buf[0]);
+		if (buf_len + 1 >= buf_alloc) {
+			buf_alloc *= 2;
+			buf = xrealloc(buf, buf_alloc * sizeof buf[0]);
 		}
 
-		buf[buf_len++] = c;
+		buf[buf_len] = c;
+		buf_len++;
 	}
 
 	if (ferror(stdin))
@@ -219,49 +215,78 @@ slurp_input(void) {
 		exit(0);
 }
 
+static size_t
+parse_item(size_t pos, struct item *itemp) {
+	size_t len, width;
+	int truncated;
+	size_t i;
+	int w;
+
+	len = 0;
+	width = 0;
+	truncated = 0;
+
+	for (i = pos; i < buf_len; i++) {
+		if (buf[i] == delim)
+			break;
+
+		if (truncated)
+			continue;
+
+		w = wcwidth(buf[i]);
+		if (w == -1)
+			w = 0;
+
+		if (width + w > term_width) {
+			truncated = 1;
+			continue;
+		}
+
+		len++;
+		width += w;
+	}
+
+	if (truncated)
+		status = 1;
+
+	itemp->str = &buf[pos];
+	itemp->len = len;
+	itemp->width = width;
+
+	return i;
+}
+
 static void
 parse_list(void) {
-	size_t i;
-	int width;
+	size_t i, end;
 	struct item item;
 
 	if (delim == L'\0')
 		binary = 0;
 
-	list_cap = LIST_CAP;
-	list = xmalloc(list_cap * sizeof list[0]);
+	list_alloc = LIST_ALLOC;
+	list = xmalloc(list_alloc * sizeof list[0]);
 
-	for (i = 0; i < buf_len; i++) {
-		item.str = &buf[i];
-		item.len = 0;
-		item.width = 0;
-
-		for (; i < buf_len; i++) {
-			if (buf[i] == delim)
-				break;
-
-			width = wcwidth(buf[i]);
-			if (width == -1)
-				width = 0;
-
-			item.len++;
-			item.width += width;
-		}
+	for (i = 0; i < buf_len; i = end + 1) {
+		end = parse_item(i, &item);
 
 		if (!binary)
-			buf[i] = L'\0';
+			buf[i + item.len] = L'\0';
 
-		if (list_len >= list_cap) {
-			list_cap *= 2;
-			list = xrealloc(list, list_cap * sizeof list[0]);
+		if (list_len >= list_alloc) {
+			list_alloc *= 2;
+			list = xrealloc(list, list_alloc * sizeof list[0]);
 		}
 
-		list[list_len++] = item;
+		list[list_len] = item;
+		list_len++;
 	}
 }
 
 static size_t *next_wider;
 
+/* Maps each item to the next item with greater width. This helps find the
+ * widest item in a column quickly. */
 static void
 init_lut(void) {
 	size_t i, j;
@@ -383,7 +408,7 @@ fits_across(void) {
 		}
 
 		j++;
-		if (j == num_cols)
+		if (j >= num_cols)
 			j = 0;
 	}
 
@@ -409,22 +434,17 @@ calc_dims(void) {
 			if (fits())
 				return;
 		}
-
-	num_rows = list_len;
-	num_cols = 1;
-	cols[0].width = 0;
-	status = 1;
 }
 
 static void
-print_item(const struct item *item) {
+print_item(const struct item *itemp) {
 	size_t i;
 	
 	if (binary)
-		for (i = 0; i < item->len; i++)
-			putwchar(item->str[i]);
+		for (i = 0; i < itemp->len; i++)
+			putwchar(itemp->str[i]);
 	else
-		fputws(item->str, stdout);
+		fputws(itemp->str, stdout);
 }
 
 static void

@@ -70,7 +70,7 @@ run_test a padding wider than output
 input='x\n'
 arguments='-w 0'
 environment=
-expected_output=$input
+expected_output='\n'
 expected_status=1
 run_test an output of zero width
 
@@ -126,7 +126,7 @@ run_test a missing delimiter
 input='xx\n'
 arguments='-w 1'
 environment=
-expected_output=$input
+expected_output='x\n'
 expected_status=1
 run_test an item wider than output
 
@@ -150,6 +150,13 @@ environment=
 expected_output='xx  x  xx\nx   x  x \nx   x  xx\n'
 expected_status=0
 run_test 'edge case #1'
+
+input='x\n\n'
+arguments='-p 0 -w 1'
+environment=
+expected_output='x\n'
+expected_status=0
+run_test 'edge case #2'
 
 input='x\ny\nx\n'
 arguments='-w 4 -a'

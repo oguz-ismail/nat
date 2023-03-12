@@ -1,31 +1,40 @@
-nat reads a list from the standard input and columnates it. It takes the
-following options:
+nat reads a list from the standard input and columnates it. It accepts the
+following options and no operands:
 
 -d DELIM
-	Input items are delimited by DELIM instead of newline.
+	Input items are delimited by the character DELIM instead of newline.
 
 -w WIDTH
-	The output is WIDTH character columns wide. -1 means one less than the
-	default value; which is the width of the terminal, the value of the
-	environment variable COLUMNS, or 80.
+	The output occupies exactly WIDTH character columns. -1 means one less
+	than the default value; which is the width of the terminal the standard
+	error is connected to, the value of the environment variable COLUMNS,
+	or 80.
 
 -c COLS
-	COLS columns are printed. This and the option -w are mutually exclusive.
+	The output is arranged in COLS columns. This and the option -w are
+	mutually exclusive.
 
 -p PADDING
-	Columns are separated by PADDING spaces instead of two.
+	Columns are separated by PADDING spaces instead of 2.
 
--a
-	Columns are filled across rather than down.
+-a	Columns are filled across rather than down.
 
-If the number of columns is not specified and a list item is wider than the
-desired output width, nat returns 1.
+Rows are always of equal width. If the number of columns is not specified,
+nat truncates list items wider than the implied or specified output width.
+
+Control characters are ignored when calculating the widths of list items, and
+nat uses only spaces and newlines for arranging its output.
+
+Other than 0, nat returns the following exit values:
+
+1	One or more list items were truncated.
+2	An error occurred.
 
 Example: displaying the largest packages installed on a Debian system, in
 columns:
 
 $ dpkg-query -W -f '${Installed-Size}\t${Package}\n' | sort -nr | cut -f 2 |
-> grep -v linux | head | nat -a
+ grep -v linux | head | nat -a
 aocc-compiler-3.2.0      thunderbird       gcc-12     chromium    cpp-12       
 openjdk-11-jre-headless  libreoffice-core  libllvm15  virtualbox  libllvm11    
 $
