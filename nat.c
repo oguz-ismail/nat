@@ -80,12 +80,12 @@ static void *xmalloc(size_t);
 static void *xrealloc(void *, size_t);
 
 static int
-parse_size(const char *src, char **endptr, int base, size_t *dest) {
+parse_size(const char *src, char **endp, int base, size_t *dest) {
 	intmax_t i;
 	uintmax_t u;
 
 	errno = 0;
-	i = strtoimax(src, endptr, base);
+	i = strtoimax(src, endp, base);
 
 	if (errno == 0 && i >= 0 && i <= SIZE_MAX) {
 		*dest = i;
@@ -95,7 +95,7 @@ parse_size(const char *src, char **endptr, int base, size_t *dest) {
 #if SIZE_MAX > INTMAX_MAX
 	if (errno == ERANGE && i == INTMAX_MAX) {
 		errno = 0;
-		u = strtoumax(src, endptr, base);
+		u = strtoumax(src, endp, base);
 
 		if (errno == 0 && u <= SIZE_MAX) {
 			*dest = u;
@@ -459,7 +459,7 @@ pad(size_t n) {
 }
 
 static void
-print_cell(size_t row, size_t col, size_t spaces) {
+print_cell(size_t row, size_t col, size_t space) {
 	size_t i;
 	size_t width;
 
@@ -477,9 +477,9 @@ print_cell(size_t row, size_t col, size_t spaces) {
 	}
 
 	if (width < cols[col].width)
-		spaces += cols[col].width - width;
+		space += cols[col].width - width;
 
-	pad(spaces);
+	pad(space);
 }
 
 static void

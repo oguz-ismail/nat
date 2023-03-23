@@ -1,4 +1,18 @@
-# vim: fdm=marker
+# Copyright 2023 Oğuz İsmail Uysal <oguzismailuysal@gmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 # {{{
 escape_for_printf() {
 	eval "tmp=\$$1"
@@ -24,7 +38,7 @@ build_expected_result() {
 
 run_scenario() {
 	escape_for_printf input
-	printf "$input" | eval "$environment ./nat $arguments"
+	printf "$input" | eval "$environment $binary $arguments"
 	printf 'x%s\n' $?
 }
 
@@ -43,6 +57,7 @@ run_test() {
 }
 # }}}
 
+binary=./nat
 export LC_ALL=C
 unset COLUMNS
 
@@ -192,3 +207,5 @@ environment=
 expected_output='x  x  x\nx      \n'
 expected_status=0
 run_test -a -c
+
+# vim: fdm=marker

@@ -1,0 +1,71 @@
+.\" Copyright 2023 Oğuz İsmail Uysal <oguzismailuysal@gmail.com>
+.\"
+.\" This program is free software: you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation, either version 3 of the License, or
+.\" (at your option) any later version.
+.\"
+.\" This program is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public License
+.\" along with this program. If not, see <https://www.gnu.org/licenses/>.
+.
+.TH NAT 1 "25 March 2023"
+.SH NAME
+nat \- columnate lists
+.SH SYNOPSIS
+\fBnat\fP [\fB-d\fP \fIdelimiter\fP] [\fB-w\fP \fIwidth\fP|\fB-c\fP
+\fIcolumns\fP] [\fB-p\fP \fIpadding\fP] [\fB-a\fP]
+.SH DESCRIPTION
+.B nat
+reads a list from the standard input and columnates it. It accepts the 
+following options and no operands:
+.TP
+\fB-d\fP \fIdelimiter\fP
+Input items are delimited by the character
+.I delimiter
+instead of newline. Empty string means NUL.
+.TP
+\fB-w\fP \fIwidth\fP
+The output occupies exactly
+.I width
+character columns. -1 means one less than the default value; which is the 
+width of the terminal the standard error is connected to, the value of the 
+environment variable \fICOLUMNS\fP, or 80.
+.TP
+\fB-c\fP \fIcolumns\fP
+The output is arranged in
+.I columns
+columns. This and the option
+.B -w
+are mutually exclusive.
+.TP
+\fB-p\fP \fIpadding\fP
+Columns are separated by
+.I padding
+spaces instead of 2.
+.TP
+\fB-a\fP
+Columns are filled across rather than down.
+.PP
+Each column is as wide as its widest item, and rows are always of equal width.
+If the number of columns is not specified,
+.B nat
+truncates list items wider than the implied or specified output width.
+.PP
+Control characters are ignored when calculating the widths of list items, and
+.B nat
+uses only spaces and newlines for arranging its output.
+.SH EXIT STATUS
+Other than 0,
+.B nat
+returns the following exit values:
+.TP
+1
+One or more list items were truncated.
+.TP
+2
+An error occurred.
