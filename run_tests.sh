@@ -208,4 +208,11 @@ expected_output='x  x  x\nx      \n'
 expected_status=0
 run_test -a -c
 
+input='xx\n'
+arguments='-w 1 -c 1'
+environment=
+expected_output=$input
+expected_status=0
+run_test -c overriding -w
+
 # vim: fdm=marker

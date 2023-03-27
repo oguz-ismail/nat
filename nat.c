@@ -146,6 +146,9 @@ set_defaults(void) {
 static void
 parse_args(int argc, char *argv[]) {
 	int opt;
+	size_t minus_one;
+
+	minus_one = term_width - 1;
 
 	while ((opt = getopt(argc, argv, ":d:w:c:p:a")) != -1)
 		switch (opt) {
@@ -155,8 +158,8 @@ parse_args(int argc, char *argv[]) {
 
 			break;
 		case 'w':
-			if (strcmp(optarg, "-1") == 0 && term_width > 0)
-				term_width--;
+			if (strcmp(optarg, "-1") == 0 && minus_one != SIZE_MAX)
+				term_width = minus_one;
 			else if (!parse_size_arg(optarg, &term_width))
 				die(optarg);
 
@@ -172,6 +175,7 @@ parse_args(int argc, char *argv[]) {
 			}
 
 			num_cols_fixed = 1;
+			term_width = SIZE_MAX;
 			break;
 		case 'p':
 			if (!parse_size_arg(optarg, &padding))
@@ -329,9 +333,6 @@ calc_from(size_t n) {
 static void
 init_calc(void) {
 	size_t max_cols;
-
-	if (num_cols_fixed)
-		term_width = SIZE_MAX;
 
 	if (num_cols_fixed) {
 		if (num_cols > list_len)
