@@ -17,8 +17,13 @@
 .SH NAME
 nat \- columnate lists
 .SH SYNOPSIS
+.PP
 \fBnat\fP [\fB-d\fP \fIdelimiter\fP] [\fB-w\fP \fIwidth\fP|\fB-c\fP
 \fIcolumns\fP] [\fB-p\fP \fIpadding\fP] [\fB-a\fP]
+.PP
+\fBnat\fP
+.B -t
+[\fB-d\fP \fIdelimiter\fP] [\fB-p\fP \fIpadding\fP] 
 .SH DESCRIPTION
 .B nat
 reads a list from the standard input and columnates it. It accepts the 
@@ -50,9 +55,17 @@ spaces instead of 2.
 .TP
 \fB-a\fP
 Columns are filled across rather than down.
+.TP
+\fB-t\fP
+If a delimiter is not specified, the tab character is used. This and the
+options \fB-w\fP, \fB-c\fP, and
+.B -a
+are incompatible.
 .PP
 Each column is as wide as its widest item, and rows are always of equal width.
-If the number of columns is not specified,
+If the number of columns is not specified and the option
+.B -t
+is not used,
 .B nat
 truncates list items wider than the implied or specified output width.
 .PP

@@ -38,8 +38,9 @@
 #include <wchar.h>
 
 #define TERM_WIDTH 80
-#define BUF_ALLOC 512
+#define BUF_ALLOC  512
 #define LIST_ALLOC 32
+#define ROWS_ALLOC 8
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
@@ -51,6 +52,10 @@ struct item {
 
 struct col {
 	size_t width;
+};
+
+struct row {
+	size_t end;
 };
 
 static wchar_t *buf;
@@ -66,13 +71,17 @@ static size_t term_width;
 static int num_cols_fixed;
 static size_t padding;
 static int across;
+static int table;
+
+static int have_nuls;
 
 static size_t num_rows;
 static size_t num_cols;
 static struct col *cols;
 static size_t blank_space;
+static struct row *rows;
+static size_t rows_alloc;
 
-static int binary;
 static int status;
 
 static void die(const char *);
@@ -80,12 +89,12 @@ static void *xmalloc(size_t);
 static void *xrealloc(void *, size_t);
 
 static int
-parse_size(const char *src, char **endp, int base, size_t *dest) {
+parse_size(const char *src, char **endptr, int base, size_t *dest) {
 	intmax_t i;
 	uintmax_t u;
 
 	errno = 0;
-	i = strtoimax(src, endp, base);
+	i = strtoimax(src, endptr, base);
 
 	if (errno == 0 && i >= 0 && i <= SIZE_MAX) {
 		*dest = i;
@@ -95,7 +104,7 @@ parse_size(const char *src, char **endp, int base, size_t *dest) {
 #if SIZE_MAX > INTMAX_MAX
 	if (errno == ERANGE && i == INTMAX_MAX) {
 		errno = 0;
-		u = strtoumax(src, endp, base);
+		u = strtoumax(src, endptr, base);
 
 		if (errno == 0 && u <= SIZE_MAX) {
 			*dest = u;
@@ -144,20 +153,36 @@ set_defaults(void) {
 }
 
 static void
+usage_error(void) {
+	fputs("Usage:\
+\tnat [-d delimiter] [-w width|-c columns] [-p padding] [-a]\n\
+\tnat -t [-d delimiter] [-p padding]\n", stderr);
+	exit(2);
+}
+
+static void
 parse_args(int argc, char *argv[]) {
 	int opt;
 	size_t minus_one;
 
 	minus_one = term_width - 1;
 
-	while ((opt = getopt(argc, argv, ":d:w:c:p:a")) != -1)
+	while ((opt = getopt(argc, argv, ":d:w:c:p:at")) != -1)
 		switch (opt) {
 		case 'd':
 			if (mbtowc(&delim, optarg, strlen(optarg) + 1) == -1)
 				die("-d");
 
+			if (table && delim == L'\n') {
+				errno = EINVAL;
+				die("-d");
+			}
+
 			break;
 		case 'w':
+			if (table)
+				usage_error();
+
 			if (strcmp(optarg, "-1") == 0 && minus_one != SIZE_MAX)
 				term_width = minus_one;
 			else if (!parse_size_arg(optarg, &term_width))
@@ -166,6 +191,9 @@ parse_args(int argc, char *argv[]) {
 			num_cols_fixed = 0;
 			break;
 		case 'c':
+			if (table)
+				usage_error();
+
 			if (!parse_size_arg(optarg, &num_cols)) {
 				die(optarg);
 			}
@@ -183,12 +211,21 @@ parse_args(int argc, char *argv[]) {
 
 			break;
 		case 'a':
+			if (table)
+				usage_error();
+
 			across = 1;
 			break;
+		case 't':
+			if (delim == L'\n')
+				delim = L'\t';
+
+			table = 1;
+			term_width = SIZE_MAX;
+			num_cols = 0;
+			break;
 		default:
-			fprintf(stderr, "Usage: \
-%s [-d delimiter] [-w width|-c columns] [-p padding] [-a]\n", argv[0]);
-			exit(2);
+			usage_error();
 		}
 }
 
@@ -201,7 +238,7 @@ slurp_input(void) {
 
 	while ((c = getwchar()) != WEOF) {
 		if (c == L'\0')
-			binary = 1;
+			have_nuls = 1;
 
 		if (buf_len + 1 >= buf_alloc) {
 			buf_alloc *= 2;
@@ -219,8 +256,31 @@ slurp_input(void) {
 		exit(0);
 }
 
+static void
+fix_eof(void) {
+	wchar_t eof;
+	wchar_t correct_eof;
+
+	eof = buf[buf_len - 1];
+
+	if (!table && delim != L'\n' && eof == L'\n') {
+		buf[buf_len - 1] = delim;
+		return;
+	}
+
+	if (table)
+		correct_eof = L'\n';
+	else
+		correct_eof = delim;
+
+	if (eof != correct_eof) {
+		buf[buf_len] = correct_eof;
+		buf_len++;
+	}
+}
+
 static size_t
-parse_item(size_t pos, struct item *itemp) {
+parse_item(size_t begin, struct item *dest) {
 	size_t len, width;
 	int truncated;
 	size_t i;
@@ -230,8 +290,8 @@ parse_item(size_t pos, struct item *itemp) {
 	width = 0;
 	truncated = 0;
 
-	for (i = pos; i < buf_len; i++) {
-		if (buf[i] == delim)
+	for (i = begin; i < buf_len; i++) {
+		if (buf[i] == delim || (table && buf[i] == L'\n'))
 			break;
 
 		if (truncated)
@@ -253,29 +313,62 @@ parse_item(size_t pos, struct item *itemp) {
 	if (truncated)
 		status = 1;
 
-	itemp->str = &buf[pos];
-	itemp->len = len;
-	itemp->width = width;
+	dest->str = &buf[begin];
+	dest->len = len;
+	dest->width = width;
 
 	return i;
 }
 
 static void
+end_of_row(size_t fields) {
+	if (num_rows >= rows_alloc) {
+		rows_alloc *= 2;
+		rows = xrealloc(rows, rows_alloc * sizeof rows[0]);
+	}
+
+	rows[num_rows].end = list_len;
+	num_rows++;
+
+	if (fields > num_cols)
+		num_cols = fields;
+}
+
+static void
 parse_list(void) {
-	size_t i, end;
+	size_t begin, end;
 	struct item item;
+	size_t fields;
 
 	if (delim == L'\0')
-		binary = 0;
+		have_nuls = 0;
+
+	fix_eof();
 
 	list_alloc = LIST_ALLOC;
 	list = xmalloc(list_alloc * sizeof list[0]);
 
-	for (i = 0; i < buf_len; i = end + 1) {
-		end = parse_item(i, &item);
+	if (table) {
+		rows_alloc = ROWS_ALLOC;
+		rows = xmalloc(rows_alloc * sizeof rows[0]);
 
-		if (!binary)
-			buf[i + item.len] = L'\0';
+		fields = 0;
+	}
+
+	for (begin = 0; begin < buf_len; begin = end + 1) {
+		end = parse_item(begin, &item);
+
+		if (table) {
+			fields++;
+
+			if (buf[end] == L'\n') {
+				end_of_row(fields);
+				fields = 0;
+			}
+		}
+
+		if (!have_nuls)
+			buf[begin + item.len] = L'\0';
 
 		if (list_len >= list_alloc) {
 			list_alloc *= 2;
@@ -285,6 +378,17 @@ parse_list(void) {
 		list[list_len] = item;
 		list_len++;
 	}
+}
+
+static size_t
+calc_from(size_t n) {
+	size_t m;
+
+	m = list_len / n;
+	if (list_len % n)
+		m++;
+
+	return m;
 }
 
 static size_t *next_wider;
@@ -304,30 +408,6 @@ init_lut(void) {
 
 		next_wider[i] = j;
 	}
-}
-
-static size_t
-max_width(size_t col) {
-	size_t i, n;
-
-	i = col * num_rows;
-	n = MIN(i + num_rows, list_len);
-
-	while (next_wider[i] < n)
-		i = next_wider[i];
-
-	return list[i].width;
-}
-
-static size_t
-calc_from(size_t n) {
-	size_t m;
-
-	m = list_len / n;
-	if (list_len % n)
-		m++;
-
-	return m;
 }
 
 static void
@@ -360,6 +440,19 @@ init_calc(void) {
 	}
 
 	cols = xmalloc(max_cols * sizeof cols[0]);
+}
+
+static size_t
+max_width(size_t col) {
+	size_t i, j;
+
+	i = col * num_rows;
+	j = MIN(i + num_rows, list_len);
+
+	while (next_wider[i] < j)
+		i = next_wider[i];
+
+	return list[i].width;
 }
 
 static int
@@ -420,7 +513,33 @@ fits_across(void) {
 }
 
 static void
-calc_dims(void) {
+calc_col_widths(void) {
+	size_t i, j, k;
+
+	cols = xmalloc(num_cols * sizeof cols[0]);
+
+	for (i = 0; i < num_cols; i++)
+		cols[i].width = 0;
+
+	i = 0;
+	for (j = 0; j < num_rows; j++) {
+		k = 0;
+		for (; i <= rows[j].end; i++) {
+			if (list[i].width > cols[k].width)
+				cols[k].width = list[i].width;
+
+			k++;
+		}
+	}
+}
+
+static void
+calc_sizes(void) {
+	if (table) {
+		calc_col_widths();
+		return;
+	}
+
 	init_calc();
 
 	if (across)
@@ -438,54 +557,80 @@ calc_dims(void) {
 }
 
 static void
-print_item(const struct item *itemp) {
+print_data(const struct item *data) {
 	size_t i;
 	
-	if (binary)
-		for (i = 0; i < itemp->len; i++)
-			putwchar(itemp->str[i]);
+	if (have_nuls)
+		for (i = 0; i < data->len; i++)
+			putwchar(data->str[i]);
 	else
-		fputws(itemp->str, stdout);
+		fputws(data->str, stdout);
 }
 
 static void
 pad(size_t n) {
 	static const wchar_t s[] = L"        ";
-	static const size_t step = (sizeof s / sizeof s[0]) - 1;
+	static const size_t slen = (sizeof s / sizeof s[0]) - 1;
 
-	for (; n > step; n -= step)
+	for (; n > slen; n -= slen)
 		fputws(s, stdout);
 
-	fputws(&s[step - n], stdout);
+	fputws(&s[slen - n], stdout);
 }
 
 static void
-print_cell(size_t row, size_t col, size_t space) {
+print_cell_with_data(size_t i, size_t col, size_t sep) {
+	print_data(&list[i]);
+	pad((cols[col].width - list[i].width) + sep);
+}
+
+static void
+print_cell(size_t row, size_t col, size_t sep) {
 	size_t i;
-	size_t width;
 
 	if (across)
 		i = (row * num_cols) + col;
 	else
 		i = (col * num_rows) + row;
 
-	if (i >= list_len) {
-		width = 0;
-	}
-	else {
-		print_item(&list[i]);
-		width = list[i].width;
-	}
+	if (i >= list_len)
+		pad(cols[col].width + sep);
+	else
+		print_cell_with_data(i, col, sep);
+}
 
-	if (width < cols[col].width)
-		space += cols[col].width - width;
+static void
+print_table(void) {
+	size_t i, j, k, l;
+	size_t blank;
 
-	pad(space);
+	i = 0;
+	for (j = 0; j < num_rows; j++) {
+		k = 0;
+		for (; i < rows[j].end; i++) {
+			print_cell_with_data(i, k, padding);
+			k++;
+		}
+
+		blank = 0;
+		for (l = k + 1; l < num_cols; l++)
+			blank += padding + cols[l].width;
+
+		print_cell_with_data(i, k, blank);
+		putwchar(L'\n');
+		
+		i++;
+	}
 }
 
 static void
 print_cols(void) {
 	size_t i, j;
+
+	if (table) {
+		print_table();
+		return;
+	}
 
 	for (i = 0; i < num_rows; i++) {
 		for (j = 0; j < num_cols - 1; j++)
@@ -503,7 +648,7 @@ main(int argc, char *argv[]) {
 	parse_args(argc, argv);
 	slurp_input();
 	parse_list();
-	calc_dims();
+	calc_sizes();
 	print_cols();
 	return status;
 }

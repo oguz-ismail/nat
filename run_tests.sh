@@ -215,4 +215,39 @@ expected_output=$input
 expected_status=0
 run_test -c overriding -w
 
+input='x\tx\nxx\tx\n'
+arguments='-t'
+environment=
+expected_output='x   x\nxx  x\n'
+expected_status=0
+run_test -t
+
+input='x\tx\n\tx\n'
+arguments='-t'
+environment=
+expected_output='x  x\n   x\n'
+expected_status=0
+run_test an empty field
+
+input='x\nx\tx\n'
+arguments='-t'
+environment=
+expected_output='x   \nx  x\n'
+expected_status=0
+run_test an extra field
+
+input='x\tx\nx\n'
+arguments='-t'
+environment=
+expected_output='x  x\nx   \n'
+expected_status=0
+run_test a missing field
+
+input='\t'
+arguments='-t'
+environment=
+expected_output='  \n'
+expected_status=0
+run_test 'corner case #1'
+
 # vim: fdm=marker
