@@ -13,26 +13,32 @@
 .\" You should have received a copy of the GNU General Public License
 .\" along with this program. If not, see <https://www.gnu.org/licenses/>.
 .
-.TH NAT 1 "25 March 2023"
+.TH NAT 1 "7 April 2023"
 .SH NAME
 nat \- columnate lists
 .SH SYNOPSIS
 .PP
-\fBnat\fP [\fB-d\fP \fIdelimiter\fP] [\fB-w\fP \fIwidth\fP|\fB-c\fP
+\fBnat\fP [\fB-d\fP \fIdelimiter\fP|\fB-s\fP] [\fB-w\fP \fIwidth\fP|\fB-c\fP
 \fIcolumns\fP] [\fB-p\fP \fIpadding\fP] [\fB-a\fP]
 .PP
 \fBnat\fP
 .B -t
-[\fB-d\fP \fIdelimiter\fP] [\fB-p\fP \fIpadding\fP] 
+[\fB-d\fP \fIdelimiter\fP|\fB-s\fP] [\fB-p\fP \fIpadding\fP]
 .SH DESCRIPTION
 .B nat
 reads a list from the standard input and columnates it. It accepts the 
 following options and no operands:
 .TP
 \fB-d\fP \fIdelimiter\fP
-Input items are delimited by the character
+Input items are terminated by the character
 .I delimiter
 instead of newline. Empty string means NUL.
+.TP
+\fB-s\fP
+Input items are separated by white space. Leading and trailing white space are
+ignored. This and the option
+.B -d
+are mutually exclusive.
 .TP
 \fB-w\fP \fIwidth\fP
 The output occupies exactly
@@ -57,8 +63,15 @@ spaces instead of 2.
 Columns are filled across rather than down.
 .TP
 \fB-t\fP
-If a delimiter is not specified, the tab character is used. This and the
-options \fB-w\fP, \fB-c\fP, and
+The input is already columnated. The delimiter specified using the options
+.B -d
+and
+.B -s
+separates input columns.
+.B nat
+replaces each separator with as many spaces as needed to align column contents
+and adds padding. If a delimiter is not specified, the tab character is used.
+This and the options \fB-w\fP, \fB-c\fP, and
 .B -a
 are incompatible.
 .PP
@@ -69,7 +82,7 @@ is not used,
 .B nat
 truncates list items wider than the implied or specified output width.
 .PP
-Control characters are ignored when calculating the widths of list items, and
+Control characters are ignored when calculating the widths of input items, and
 .B nat
 uses only spaces and newlines for arranging its output.
 .SH EXIT STATUS

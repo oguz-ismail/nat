@@ -36,6 +36,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <wchar.h>
+#include <wctype.h>
 
 #define TERM_WIDTH 80
 #define BUF_ALLOC  512
@@ -67,6 +68,7 @@ static size_t list_len;
 static size_t list_alloc;
 
 static wchar_t delim;
+static int words_only;
 static size_t term_width;
 static int num_cols_fixed;
 static size_t padding;
@@ -79,6 +81,7 @@ static size_t num_rows;
 static size_t num_cols;
 static struct col *cols;
 static size_t blank_space;
+static size_t *next_wider;
 static struct row *rows;
 static size_t rows_alloc;
 
@@ -155,8 +158,8 @@ set_defaults(void) {
 static void
 usage_error(void) {
 	fputs("Usage:\
-\tnat [-d delimiter] [-w width|-c columns] [-p padding] [-a]\n\
-\tnat -t [-d delimiter] [-p padding]\n", stderr);
+\tnat [-d delimiter|-s] [-w width|-c columns] [-p padding] [-a]\n\
+\tnat -t [-d delimiter|-s] [-p padding]\n", stderr);
 	exit(2);
 }
 
@@ -165,19 +168,26 @@ parse_args(int argc, char *argv[]) {
 	int opt;
 	size_t minus_one;
 
-	minus_one = term_width - 1;
+	if (term_width == 0)
+		minus_one = SIZE_MAX;
+	else
+		minus_one = term_width - 1;
 
-	while ((opt = getopt(argc, argv, ":d:w:c:p:at")) != -1)
+	while ((opt = getopt(argc, argv, ":d:sw:c:p:at")) != -1)
 		switch (opt) {
 		case 'd':
-			if (mbtowc(&delim, optarg, strlen(optarg) + 1) == -1)
+			if (mbtowc(&delim, optarg, strlen(optarg) + 1) == -1) {
 				die("-d");
-
-			if (table && delim == L'\n') {
+			}
+			else if (table && delim == L'\n') {
 				errno = EINVAL;
 				die("-d");
 			}
 
+			words_only = 0;
+			break;
+		case 's':
+			words_only = 1;
 			break;
 		case 'w':
 			if (table)
@@ -217,7 +227,7 @@ parse_args(int argc, char *argv[]) {
 			across = 1;
 			break;
 		case 't':
-			if (delim == L'\n')
+			if (!words_only && delim == L'\n')
 				delim = L'\t';
 
 			table = 1;
@@ -258,12 +268,11 @@ slurp_input(void) {
 
 static void
 fix_eof(void) {
-	wchar_t eof;
-	wchar_t correct_eof;
+	wchar_t eof, correct_eof;
 
 	eof = buf[buf_len - 1];
 
-	if (!table && delim != L'\n' && eof == L'\n') {
+	if (!table && !words_only && delim != L'\n' && eof == L'\n') {
 		buf[buf_len - 1] = delim;
 		return;
 	}
@@ -279,6 +288,33 @@ fix_eof(void) {
 	}
 }
 
+static void
+init_parse(void) {
+	if (!words_only && delim == L'\0')
+		have_nuls = 0;
+
+	fix_eof();
+
+	list_alloc = LIST_ALLOC;
+	list = xmalloc(list_alloc * sizeof list[0]);
+
+	if (table) {
+		rows_alloc = ROWS_ALLOC;
+		rows = xmalloc(rows_alloc * sizeof rows[0]);
+	}
+}
+
+static size_t
+skip_white_space(size_t begin) {
+	size_t i;
+
+	for (i = begin; i < buf_len; i++)
+		if (!iswspace(buf[i]) || (table && buf[i] == L'\n'))
+			break;
+
+	return i;
+}
+
 static size_t
 parse_item(size_t begin, struct item *dest) {
 	size_t len, width;
@@ -291,7 +327,15 @@ parse_item(size_t begin, struct item *dest) {
 	truncated = 0;
 
 	for (i = begin; i < buf_len; i++) {
-		if (buf[i] == delim || (table && buf[i] == L'\n'))
+		if (words_only) {
+			if (iswspace(buf[i]))
+				break;
+		}
+		else if (buf[i] == delim) {
+			break;
+		}
+
+		if (table && buf[i] == L'\n')
 			break;
 
 		if (truncated)
@@ -335,34 +379,46 @@ end_of_row(size_t fields) {
 }
 
 static void
+save_item(const struct item *src) {
+	if (list_len >= list_alloc) {
+		list_alloc *= 2;
+		list = xrealloc(list, list_alloc * sizeof list[0]);
+	}
+
+	list[list_len] = *src;
+	list_len++;
+}
+
+static void
 parse_list(void) {
 	size_t begin, end;
 	struct item item;
 	size_t fields;
+	int eol;
 
-	if (delim == L'\0')
-		have_nuls = 0;
+	init_parse();
 
-	fix_eof();
+	if (words_only)
+		begin = skip_white_space(0);
+	else
+		begin = 0;
 
-	list_alloc = LIST_ALLOC;
-	list = xmalloc(list_alloc * sizeof list[0]);
-
-	if (table) {
-		rows_alloc = ROWS_ALLOC;
-		rows = xmalloc(rows_alloc * sizeof rows[0]);
-
+	if (table)
 		fields = 0;
-	}
 
-	for (begin = 0; begin < buf_len; begin = end + 1) {
+	while (begin < buf_len) {
 		end = parse_item(begin, &item);
+
+		if (words_only)
+			end = skip_white_space(end);
 
 		if (table) {
 			fields++;
+			eol = 0;
 
 			if (buf[end] == L'\n') {
 				end_of_row(fields);
+				eol = 1;
 				fields = 0;
 			}
 		}
@@ -370,14 +426,21 @@ parse_list(void) {
 		if (!have_nuls)
 			buf[begin + item.len] = L'\0';
 
-		if (list_len >= list_alloc) {
-			list_alloc *= 2;
-			list = xrealloc(list, list_alloc * sizeof list[0]);
-		}
+		save_item(&item);
 
-		list[list_len] = item;
-		list_len++;
+		if (words_only) {
+			if (table && eol)
+				begin = skip_white_space(end + 1);
+			else
+				begin = end;
+		}
+		else {
+			begin = end + 1;
+		}
 	}
+
+	if (list_len == 0)
+		exit(0);
 }
 
 static size_t
@@ -390,8 +453,6 @@ calc_from(size_t n) {
 
 	return m;
 }
-
-static size_t *next_wider;
 
 /* Maps each item to the next item with greater width. This helps find the
  * widest item in a column quickly. */

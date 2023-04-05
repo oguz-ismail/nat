@@ -89,7 +89,7 @@ expected_output='\n'
 expected_status=1
 run_test an output of zero width
 
-input=xy
+input='xy'
 arguments='-d y -w 1'
 environment=
 expected_output='x\n'
@@ -105,7 +105,7 @@ run_test a NUL as delimiter
 
 input='x\n'
 arguments=
-environment=COLUMNS=2
+environment='COLUMNS=2'
 expected_output='x \n'
 expected_status=0
 run_test '$COLUMNS' 2>/dev/null
@@ -131,12 +131,19 @@ expected_output='  \n'
 expected_status=0
 run_test a list of empty items
 
-input=x
+input='x'
 arguments='-w 1'
 environment=
 expected_output='x\n'
 expected_status=0
 run_test a missing delimiter
+
+input='xyx\n'
+arguments='-d y -w 1'
+environment=
+expected_output='x\nx\n'
+expected_status=0
+run_test a trailing newline
 
 input='xx\n'
 arguments='-w 1'
@@ -249,5 +256,47 @@ environment=
 expected_output='  \n'
 expected_status=0
 run_test 'corner case #1'
+
+input='x x\tx\nx\n'
+arguments='-s -w 10'
+environment=
+expected_output='x  x  x  x\n'
+expected_status=0
+run_test -s
+
+input=' \n'
+arguments='-s'
+environment=
+expected_output=
+expected_status=0
+run_test a blank input
+
+input=' x\n'
+arguments='-s -w 2'
+environment=
+expected_output='x \n'
+expected_status=0
+run_test leading whitespace
+
+input='x\nx \n'
+arguments='-s -w 4'
+environment=
+expected_output='x  x\n'
+expected_status=0
+run_test trailing whitespace
+
+input='x x\n x\tx\n'
+arguments='-s -t'
+environment=
+expected_output='x  x\nx  x\n'
+expected_status=0
+run_test -s -t
+
+input=' '
+arguments='-s -t'
+environment=
+expected_output='\n'
+expected_status=0
+run_test 'corner case #2'
 
 # vim: fdm=marker
