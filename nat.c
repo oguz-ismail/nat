@@ -70,7 +70,7 @@ static size_t list_alloc;
 static wchar_t delim;
 static int words_only;
 static size_t term_width;
-static int num_cols_fixed;
+static int num_cols_set;
 static size_t padding;
 static int across;
 static int table;
@@ -123,7 +123,7 @@ parse_size(const char *src, char **endptr, int base, size_t *dest) {
 }
 
 static int
-parse_size_arg(const char *src, size_t *dest) {
+str_to_size(const char *src, size_t *dest) {
 	char *end;
 
 	if (!parse_size(src, &end, 10, dest)) {
@@ -150,7 +150,7 @@ set_defaults(void) {
 	}
 	else {
 		env = getenv("COLUMNS");
-		if (!env || !parse_size_arg(env, &term_width))
+		if (!env || !str_to_size(env, &term_width))
 			term_width = TERM_WIDTH;
 	}
 }
@@ -166,12 +166,12 @@ usage_error(void) {
 static void
 parse_args(int argc, char *argv[]) {
 	int opt;
-	size_t minus_one;
+	size_t minus1;
 
 	if (term_width == 0)
-		minus_one = SIZE_MAX;
+		minus1 = SIZE_MAX;
 	else
-		minus_one = term_width - 1;
+		minus1 = term_width - 1;
 
 	while ((opt = getopt(argc, argv, ":d:sw:c:p:at")) != -1)
 		switch (opt) {
@@ -193,18 +193,18 @@ parse_args(int argc, char *argv[]) {
 			if (table)
 				usage_error();
 
-			if (strcmp(optarg, "-1") == 0 && minus_one != SIZE_MAX)
-				term_width = minus_one;
-			else if (!parse_size_arg(optarg, &term_width))
+			if (minus1 != SIZE_MAX && strcmp(optarg, "-1") == 0)
+				term_width = minus1;
+			else if (!str_to_size(optarg, &term_width))
 				die(optarg);
 
-			num_cols_fixed = 0;
+			num_cols_set = 0;
 			break;
 		case 'c':
 			if (table)
 				usage_error();
 
-			if (!parse_size_arg(optarg, &num_cols)) {
+			if (!str_to_size(optarg, &num_cols)) {
 				die(optarg);
 			}
 			else if (num_cols == 0) {
@@ -212,11 +212,11 @@ parse_args(int argc, char *argv[]) {
 				die("-c");
 			}
 
-			num_cols_fixed = 1;
 			term_width = SIZE_MAX;
+			num_cols_set = 1;
 			break;
 		case 'p':
-			if (!parse_size_arg(optarg, &padding))
+			if (!str_to_size(optarg, &padding))
 				die(optarg);
 
 			break;
@@ -230,8 +230,10 @@ parse_args(int argc, char *argv[]) {
 			if (!words_only && delim == L'\n')
 				delim = L'\t';
 
-			table = 1;
 			term_width = SIZE_MAX;
+			num_cols_set = 0;
+			across = 0;
+			table = 1;
 			num_cols = 0;
 			break;
 		default:
@@ -475,7 +477,7 @@ static void
 init_calc(void) {
 	size_t max_cols;
 
-	if (num_cols_fixed) {
+	if (num_cols_set) {
 		if (num_cols > list_len)
 			max_cols = list_len;
 		else if (across)
@@ -484,6 +486,9 @@ init_calc(void) {
 			max_cols = calc_from(calc_from(num_cols));
 
 		blank_space = (num_cols - max_cols) * padding;
+	}
+	else if (table) {
+		max_cols = num_cols;
 	}
 	else {
 		if (padding == 0) 
@@ -495,7 +500,7 @@ init_calc(void) {
 	if (across) {
 		num_cols = max_cols;
 	}
-	else {
+	else if (!table) {
 		init_lut();
 		num_rows = calc_from(max_cols);
 	}
@@ -516,6 +521,51 @@ max_width(size_t col) {
 	return list[i].width;
 }
 
+static void
+init_cols(void) {
+	size_t i;
+
+	for (i = 0; i < num_cols; i++)
+		cols[i].width = max_width(i);
+}
+
+static void
+init_cols_across(void) {
+	size_t i, j;
+
+	for (i = 0; i < num_cols; i++)
+		cols[i].width = list[i].width;
+
+	j = 0;
+	for (; i < list_len; i++) {
+		if (list[i].width > cols[j].width)
+			cols[j].width = list[i].width;
+
+		j++;
+		if (j >= num_cols)
+			j = 0;
+	}
+}
+
+static void
+init_cols_table(void) {
+	size_t i, j, k;
+
+	for (i = 0; i < num_cols; i++)
+		cols[i].width = 0;
+
+	i = 0;
+	for (j = 0; j < num_rows; j++) {
+		k = 0;
+		for (; i <= rows[j].end; i++) {
+			if (list[i].width > cols[k].width)
+				cols[k].width = list[i].width;
+
+			k++;
+		}
+	}
+}
+
 static int
 fits(void) {
 	size_t width;
@@ -531,12 +581,8 @@ fits(void) {
 			return 0;
 	}
 
-	for (i = 0; i < num_cols; i++)
-		cols[i].width = max_width(i);
-		
-	if (!num_cols_fixed)
-		blank_space = term_width - width;
-
+	init_cols();
+	blank_space = term_width - width;
 	return 1;
 }
 
@@ -567,65 +613,41 @@ fits_across(void) {
 			j = 0;
 	}
 
-	if (!num_cols_fixed)
-		blank_space = term_width - width;
-
+	blank_space = term_width - width;
 	return 1;
 }
 
 static void
-calc_col_widths(void) {
-	size_t i, j, k;
-
-	cols = xmalloc(num_cols * sizeof cols[0]);
-
-	for (i = 0; i < num_cols; i++)
-		cols[i].width = 0;
-
-	i = 0;
-	for (j = 0; j < num_rows; j++) {
-		k = 0;
-		for (; i <= rows[j].end; i++) {
-			if (list[i].width > cols[k].width)
-				cols[k].width = list[i].width;
-
-			k++;
-		}
-	}
-}
-
-static void
 calc_sizes(void) {
-	if (table) {
-		calc_col_widths();
-		return;
-	}
-
 	init_calc();
 
-	if (across)
+	if (num_cols_set) {
+		if (across) {
+			num_rows = calc_from(num_cols);
+			init_cols_across();
+		}
+		else {
+			num_cols = calc_from(num_rows);
+			init_cols();
+		}
+	}
+	else if (table) {
+		init_cols_table();
+	}
+	else if (across) {
 		for (; num_cols >= 1; num_cols--) {
 			num_rows = calc_from(num_cols);
 			if (fits_across())
-				return;
+				break;
 		}
-	else
+	}
+	else {
 		for (; num_rows <= list_len; num_rows++) {
 			num_cols = calc_from(num_rows);
 			if (fits())
-				return;
+				break;
 		}
-}
-
-static void
-print_data(const struct item *data) {
-	size_t i;
-	
-	if (have_nuls)
-		for (i = 0; i < data->len; i++)
-			putwchar(data->str[i]);
-	else
-		fputws(data->str, stdout);
+	}
 }
 
 static void
@@ -637,6 +659,17 @@ pad(size_t n) {
 		fputws(s, stdout);
 
 	fputws(&s[slen - n], stdout);
+}
+
+static void
+print_data(const struct item *data) {
+	size_t i;
+	
+	if (have_nuls)
+		for (i = 0; i < data->len; i++)
+			putwchar(data->str[i]);
+	else
+		fputws(data->str, stdout);
 }
 
 static void
@@ -690,15 +723,15 @@ print_cols(void) {
 
 	if (table) {
 		print_table();
-		return;
 	}
+	else {
+		for (i = 0; i < num_rows; i++) {
+			for (j = 0; j < num_cols - 1; j++)
+				print_cell(i, j, padding);
 
-	for (i = 0; i < num_rows; i++) {
-		for (j = 0; j < num_cols - 1; j++)
-			print_cell(i, j, padding);
-
-		print_cell(i, j, blank_space);
-		putwchar(L'\n');
+			print_cell(i, j, blank_space);
+			putwchar(L'\n');
+		}
 	}
 }
 
