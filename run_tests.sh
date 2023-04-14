@@ -299,4 +299,39 @@ expected_output='\n'
 expected_status=0
 run_test 'corner case #2'
 
+input='x\nxx\n'
+arguments='-w 2 -r 1'
+environment=
+expected_output=' x\nxx\n'
+expected_status=0
+run_test -r
+
+input='x\nxx\nx\nxx\n'
+arguments='-w 6 -r -1'
+environment=
+expected_output='x    x\nxx  xx\n'
+expected_status=0
+run_test -1 as column number
+
+input='x\nxx\nx\nxx\nx\nxx\n'
+arguments='-w 10 -r 1:2'
+environment=
+expected_output=' x  x    x\nxx  xx  xx\n'
+expected_status=0
+run_test a sequence
+
+input='x\nxx\nx\nxx\nx\nxx\nx\nxx\n'
+arguments='-w 14 -r -1:2'
+environment=
+expected_output='x    x  x    x\nxx  xx  xx  xx\n'
+expected_status=0
+run_test a backward sequence
+
+input='x\nxx\nx\nxx\nx\nxx\nx\nxx\nx\nxx\n'
+arguments='-w 18 -r 1,2:2,3'
+environment=
+expected_output=' x   x   x   x  x \nxx  xx  xx  xx  xx\n'
+expected_status=0
+run_test a list of sequences
+
 # vim: fdm=marker

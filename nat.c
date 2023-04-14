@@ -38,10 +38,11 @@
 #include <wchar.h>
 #include <wctype.h>
 
-#define TERM_WIDTH 80
-#define BUF_ALLOC  512
-#define LIST_ALLOC 32
-#define ROWS_ALLOC 8
+#define TERM_WIDTH   80
+#define BUF_ALLOC    512
+#define LIST_ALLOC   32
+#define ROWS_ALLOC   8
+#define RALIGN_ALLOC 16
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
@@ -53,10 +54,16 @@ struct item {
 
 struct col {
 	size_t width;
+	int right;
 };
 
 struct row {
-	size_t end;
+	size_t last;
+};
+
+struct seq {
+	size_t first;
+	size_t incr;
 };
 
 static wchar_t *buf;
@@ -74,6 +81,9 @@ static int num_cols_set;
 static size_t padding;
 static int across;
 static int table;
+
+static struct seq ralign[RALIGN_ALLOC];
+static size_t ralign_len;
 
 static int have_nuls;
 
@@ -123,7 +133,7 @@ parse_size(const char *src, char **endptr, int base, size_t *dest) {
 }
 
 static int
-str_to_size(const char *src, size_t *dest) {
+to_size(const char *src, size_t *dest) {
 	char *end;
 
 	if (!parse_size(src, &end, 10, dest)) {
@@ -150,7 +160,7 @@ set_defaults(void) {
 	}
 	else {
 		env = getenv("COLUMNS");
-		if (!env || !str_to_size(env, &term_width))
+		if (!env || !to_size(env, &term_width))
 			term_width = TERM_WIDTH;
 	}
 }
@@ -159,21 +169,91 @@ static void
 usage_error(void) {
 	fputs("Usage:\
 \tnat [-d delimiter|-s] [-w width|-c columns] [-p padding] [-a]\n\
-\tnat -t [-d delimiter|-s] [-p padding]\n", stderr);
+\t    [-r column[,column]...]\n\
+\tnat -t [-d delimiter|-s] [-p padding] [-r column[,column]...]\n", stderr);
 	exit(2);
+}
+
+static char *
+parse_seq(const char *src, struct seq *dest) {
+	const char *begin;
+	char *end;
+	size_t first, incr;
+
+	begin = src;
+	if (strncmp(begin, "-1", 2) == 0) {
+		first = 0;
+		end = (char *)begin + 2;
+	}
+	else if (!parse_size(begin, &end, 10, &first)) {
+		return NULL;
+	}
+	else if (end == begin || first == 0) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	if (*end == ':') {
+		begin = end + 1;
+		if (!parse_size(begin, &end, 10, &incr)) {
+			return NULL;
+		}
+		else if (end == begin) {
+			errno = EINVAL;
+			return NULL;
+		}
+	}
+	else {
+		incr = 0;
+	}
+
+	dest->first = first;
+	dest->incr = incr;
+
+	return end;
+}
+
+static int
+parse_right_aligned(const char *src) {
+	const char *begin, *end;
+	struct seq col;
+
+	for (begin = src; ; begin = end + 1) {
+		end = parse_seq(begin, &col);
+		if (end == NULL)
+			return 0;
+
+		if (ralign_len >= RALIGN_ALLOC) {
+			errno = ENOMEM;
+			return 0;
+		}
+
+		ralign[ralign_len] = col;
+		ralign_len++;
+
+		if (*end == '\0') {
+			break;
+		}
+		else if (*end != ',') {
+			errno = EINVAL;
+			return 0;
+		}
+	}
+
+	return 1;
 }
 
 static void
 parse_args(int argc, char *argv[]) {
 	int opt;
-	size_t minus1;
+	size_t one_less;
 
 	if (term_width == 0)
-		minus1 = SIZE_MAX;
+		one_less = SIZE_MAX;
 	else
-		minus1 = term_width - 1;
+		one_less = term_width - 1;
 
-	while ((opt = getopt(argc, argv, ":d:sw:c:p:at")) != -1)
+	while ((opt = getopt(argc, argv, ":d:sw:c:p:an:r:t")) != -1)
 		switch (opt) {
 		case 'd':
 			if (mbtowc(&delim, optarg, strlen(optarg) + 1) == -1) {
@@ -193,9 +273,9 @@ parse_args(int argc, char *argv[]) {
 			if (table)
 				usage_error();
 
-			if (minus1 != SIZE_MAX && strcmp(optarg, "-1") == 0)
-				term_width = minus1;
-			else if (!str_to_size(optarg, &term_width))
+			if (one_less != SIZE_MAX && strcmp(optarg, "-1") == 0)
+				term_width = one_less;
+			else if (!to_size(optarg, &term_width))
 				die(optarg);
 
 			num_cols_set = 0;
@@ -204,7 +284,7 @@ parse_args(int argc, char *argv[]) {
 			if (table)
 				usage_error();
 
-			if (!str_to_size(optarg, &num_cols)) {
+			if (!to_size(optarg, &num_cols)) {
 				die(optarg);
 			}
 			else if (num_cols == 0) {
@@ -216,7 +296,7 @@ parse_args(int argc, char *argv[]) {
 			num_cols_set = 1;
 			break;
 		case 'p':
-			if (!str_to_size(optarg, &padding))
+			if (!to_size(optarg, &padding))
 				die(optarg);
 
 			break;
@@ -225,6 +305,12 @@ parse_args(int argc, char *argv[]) {
 				usage_error();
 
 			across = 1;
+			break;
+		case 'n':
+		case 'r':
+			if (!parse_right_aligned(optarg))
+				die(optarg);
+
 			break;
 		case 't':
 			if (!words_only && delim == L'\n')
@@ -239,6 +325,9 @@ parse_args(int argc, char *argv[]) {
 		default:
 			usage_error();
 		}
+
+	if (optind != argc)
+		usage_error();
 }
 
 static void
@@ -307,7 +396,7 @@ init_parse(void) {
 }
 
 static size_t
-skip_white_space(size_t begin) {
+skip_whitespace(size_t begin) {
 	size_t i;
 
 	for (i = begin; i < buf_len; i++)
@@ -373,7 +462,7 @@ end_of_row(size_t fields) {
 		rows = xrealloc(rows, rows_alloc * sizeof rows[0]);
 	}
 
-	rows[num_rows].end = list_len;
+	rows[num_rows].last = list_len;
 	num_rows++;
 
 	if (fields > num_cols)
@@ -401,7 +490,7 @@ parse_list(void) {
 	init_parse();
 
 	if (words_only)
-		begin = skip_white_space(0);
+		begin = skip_whitespace(0);
 	else
 		begin = 0;
 
@@ -412,7 +501,7 @@ parse_list(void) {
 		end = parse_item(begin, &item);
 
 		if (words_only)
-			end = skip_white_space(end);
+			end = skip_whitespace(end);
 
 		if (table) {
 			fields++;
@@ -432,7 +521,7 @@ parse_list(void) {
 
 		if (words_only) {
 			if (table && eol)
-				begin = skip_white_space(end + 1);
+				begin = skip_whitespace(end + 1);
 			else
 				begin = end;
 		}
@@ -557,7 +646,7 @@ init_cols_table(void) {
 	i = 0;
 	for (j = 0; j < num_rows; j++) {
 		k = 0;
-		for (; i <= rows[j].end; i++) {
+		for (; i <= rows[j].last; i++) {
 			if (list[i].width > cols[k].width)
 				cols[k].width = list[i].width;
 
@@ -651,6 +740,38 @@ calc_sizes(void) {
 }
 
 static void
+init_print(void) {
+	size_t i, j;
+	size_t incr, first, next;
+
+	for (i = 0; i < num_cols; i++)
+		cols[i].right = 0;
+
+	for (i = 0; i < ralign_len; i++) {
+		incr = ralign[i].incr;
+		if (ralign[i].first == 0) {
+			if (incr == 0 || incr >= num_cols)
+				first = num_cols;
+			else if (num_cols % incr == 0)
+				first = incr;
+			else
+				first = num_cols % incr;
+		}
+		else {
+			first = ralign[i].first;
+		}
+
+		for (j = first - 1; j < num_cols; j = next) {
+			cols[j].right = 1;
+
+			next = j + incr;
+			if (next <= j)
+				break;
+		}
+	}
+}
+
+static void
 pad(size_t n) {
 	static const wchar_t s[] = L"        ";
 	static const size_t slen = (sizeof s / sizeof s[0]) - 1;
@@ -673,9 +794,18 @@ print_data(const struct item *data) {
 }
 
 static void
-print_cell_with_data(size_t i, size_t col, size_t sep) {
+print_nonempty_cell(size_t i, size_t col, size_t sep) {
+	size_t blanks;
+
+	blanks = cols[col].width - list[i].width;
+
+	if (cols[col].right)
+		pad(blanks);
+	else
+		sep += blanks;
+
 	print_data(&list[i]);
-	pad((cols[col].width - list[i].width) + sep);
+	pad(sep);
 }
 
 static void
@@ -690,27 +820,27 @@ print_cell(size_t row, size_t col, size_t sep) {
 	if (i >= list_len)
 		pad(cols[col].width + sep);
 	else
-		print_cell_with_data(i, col, sep);
+		print_nonempty_cell(i, col, sep);
 }
 
 static void
 print_table(void) {
 	size_t i, j, k, l;
-	size_t blank;
+	size_t blanks;
 
 	i = 0;
 	for (j = 0; j < num_rows; j++) {
 		k = 0;
-		for (; i < rows[j].end; i++) {
-			print_cell_with_data(i, k, padding);
+		for (; i < rows[j].last; i++) {
+			print_nonempty_cell(i, k, padding);
 			k++;
 		}
 
-		blank = 0;
+		blanks = 0;
 		for (l = k + 1; l < num_cols; l++)
-			blank += padding + cols[l].width;
+			blanks += padding + cols[l].width;
 
-		print_cell_with_data(i, k, blank);
+		print_nonempty_cell(i, k, blanks);
 		putwchar(L'\n');
 		
 		i++;
@@ -720,6 +850,8 @@ print_table(void) {
 static void
 print_cols(void) {
 	size_t i, j;
+
+	init_print();
 
 	if (table) {
 		print_table();
