@@ -102,44 +102,59 @@ static void *xmalloc(size_t);
 static void *xrealloc(void *, size_t);
 
 static int
-parse_size(const char *src, char **endptr, int base, size_t *dest) {
+parse_size(const char *src, char **endptr, size_t *dest) {
 	intmax_t i;
 	uintmax_t u;
+	char *end;
 
 	errno = 0;
-	i = strtoimax(src, endptr, base);
+	i = strtoimax(src, &end, 10);
 
-	if (errno == 0 && i >= 0 && i <= SIZE_MAX) {
-		*dest = i;
-		return 1;
+	if (errno == 0) {
+		if (i < 0 || i > SIZE_MAX) {
+			errno = ERANGE;
+			return 0;
+		}
+
+		u = i;
 	}
-
 #if SIZE_MAX > INTMAX_MAX
-	if (errno == ERANGE && i == INTMAX_MAX) {
+	else if (errno == ERANGE && i == INTMAX_MAX) {
 		errno = 0;
-		u = strtoumax(src, endptr, base);
+		u = strtoumax(src, &end, 10);
 
-		if (errno == 0 && u <= SIZE_MAX) {
-			*dest = u;
-			return 1;
+		if (errno != 0) {
+			return 0;
+		}
+		else if (u > SIZE_MAX) {
+			errno = ERANGE;
+			return 0;
 		}
 	}
 #endif
+	else {
+		return 0;
+	}
 
-	if (errno == 0)
-		errno = ERANGE;
+	if (end == src) {
+		errno = EINVAL;
+		return 0;
+	}
 
-	return 0;
+	*dest = u;
+	*endptr = end;
+
+	return 1;
 }
 
 static int
 to_size(const char *src, size_t *dest) {
 	char *end;
 
-	if (!parse_size(src, &end, 10, dest)) {
+	if (!parse_size(src, &end, dest)) {
 		return 0;
 	}
-	else if (end == src || *end != '\0') {
+	else if (*end != '\0') {
 		errno = EINVAL;
 		return 0;
 	}
@@ -174,8 +189,8 @@ usage_error(void) {
 	exit(2);
 }
 
-static char *
-parse_seq(const char *src, struct seq *dest) {
+static int
+parse_seq(const char *src, char **endptr, struct seq *dest) {
 	const char *begin;
 	char *end;
 	size_t first, incr;
@@ -185,22 +200,18 @@ parse_seq(const char *src, struct seq *dest) {
 		first = 0;
 		end = (char *)begin + 2;
 	}
-	else if (!parse_size(begin, &end, 10, &first)) {
-		return NULL;
+	else if (!parse_size(begin, &end, &first)) {
+		return 0;
 	}
-	else if (end == begin || first == 0) {
+	else if (first == 0) {
 		errno = EINVAL;
-		return NULL;
+		return 0;
 	}
 
 	if (*end == ':') {
 		begin = end + 1;
-		if (!parse_size(begin, &end, 10, &incr)) {
-			return NULL;
-		}
-		else if (end == begin) {
-			errno = EINVAL;
-			return NULL;
+		if (!parse_size(begin, &end, &incr)) {
+			return 0;
 		}
 	}
 	else {
@@ -209,18 +220,19 @@ parse_seq(const char *src, struct seq *dest) {
 
 	dest->first = first;
 	dest->incr = incr;
+	*endptr = end;
 
-	return end;
+	return 1;
 }
 
 static int
 parse_right_aligned(const char *src) {
-	const char *begin, *end;
+	const char *begin;
+	char *end;
 	struct seq col;
 
 	for (begin = src; ; begin = end + 1) {
-		end = parse_seq(begin, &col);
-		if (end == NULL)
+		if (!parse_seq(begin, &end, &col))
 			return 0;
 
 		if (ralign_len >= RALIGN_ALLOC) {
@@ -798,7 +810,6 @@ print_nonempty_cell(size_t i, size_t col, size_t sep) {
 	size_t blanks;
 
 	blanks = cols[col].width - list[i].width;
-
 	if (cols[col].right)
 		pad(blanks);
 	else
