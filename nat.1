@@ -13,7 +13,7 @@
 .\" You should have received a copy of the GNU General Public License
 .\" along with this program. If not, see <https://www.gnu.org/licenses/>.
 .
-.TH NAT 1 "16 May 2023"
+.TH NAT 1 "27 Aug 2023"
 .SH NAME
 nat \- columnate lists
 .SH SYNOPSIS
@@ -69,13 +69,15 @@ spaces instead of 2.
 Columns are filled across rather than down.
 .TP
 \fB-r\fP \fIcolumn\fP[,\fIcolumn\fP]...
-The \fIcolumn\fPth column is right-aligned. Columns are numbered from 1, and -1
-means the last column. If
+The \fIcolumn\fPth column is right-aligned. Columns are numbered from 1;
+starting from the left, or right if
+.I column
+is preceded by a minus sign. If
 .I column
 is followed by \fI:N\fP, every \fIN\fPth column following the
-\fIcolumn\fPth or preceding the last if
-.I column
-is -1, is also right-aligned. The option
+\fIcolumn\fPth is also right-aligned.
+.sp
+The option
 .B -n
 is an alias for this.
 .TP

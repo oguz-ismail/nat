@@ -320,12 +320,19 @@ expected_output=' x  x    x\nxx  xx  xx\n'
 expected_status=0
 run_test a sequence
 
-input='x\nxx\nx\nxx\nx\nxx\nx\nxx\n'
-arguments='-w 14 -r -1:2'
+input='x\nxx\nx\nxx\nx\nxx\n'
+arguments='-w 10 -r -1:2'
 environment=
-expected_output='x    x  x    x\nxx  xx  xx  xx\n'
+expected_output=' x  x    x\nxx  xx  xx\n'
 expected_status=0
 run_test a backward sequence
+
+input='x\nxx\nx\nxx\nx\nxx\n'
+arguments='-w 10 -r -2:1'
+environment=
+expected_output=' x   x  x \nxx  xx  xx\n'
+expected_status=0
+run_test selecting the first half
 
 input='x\nxx\nx\nxx\nx\nxx\nx\nxx\nx\nxx\n'
 arguments='-w 18 -r 1,2:2,3'

@@ -38,11 +38,11 @@
 #include <wchar.h>
 #include <wctype.h>
 
-#define TERM_WIDTH   80
-#define BUF_ALLOC    512
-#define LIST_ALLOC   32
-#define ROWS_ALLOC   8
-#define RALIGN_ALLOC 16
+#define TERM_WIDTH  80
+#define BUF_ALLOC   512
+#define LIST_ALLOC  32
+#define ROWS_ALLOC  8
+#define RIGHT_ALLOC 16
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
@@ -54,7 +54,7 @@ struct item {
 
 struct col {
 	size_t width;
-	int right;
+	int align_right;
 };
 
 struct row {
@@ -64,6 +64,7 @@ struct row {
 struct seq {
 	size_t first;
 	size_t incr;
+	int backward;
 };
 
 static wchar_t *buf;
@@ -82,16 +83,16 @@ static size_t padding;
 static int across;
 static int table;
 
-static struct seq ralign[RALIGN_ALLOC];
-static size_t ralign_len;
+static struct seq right[RIGHT_ALLOC];
+static size_t right_len;
 
-static int have_nuls;
+static int binary;
 
 static size_t num_rows;
 static size_t num_cols;
 static struct col *cols;
 static size_t blank_space;
-static size_t *next_wider;
+static size_t *wider_next;
 static struct row *rows;
 static size_t rows_alloc;
 
@@ -194,13 +195,18 @@ parse_seq(const char *src, char **endptr, struct seq *dest) {
 	const char *begin;
 	char *end;
 	size_t first, incr;
+	int backward;
 
+	incr = 0;
+	backward = 0;
 	begin = src;
-	if (strncmp(begin, "-1", 2) == 0) {
-		first = 0;
-		end = (char *)begin + 2;
+
+	if (*begin == '-') {
+		backward = 1;
+		begin++;
 	}
-	else if (!parse_size(begin, &end, &first)) {
+
+	if (!parse_size(begin, &end, &first)) {
 		return 0;
 	}
 	else if (first == 0) {
@@ -214,34 +220,30 @@ parse_seq(const char *src, char **endptr, struct seq *dest) {
 			return 0;
 		}
 	}
-	else {
-		incr = 0;
-	}
 
 	dest->first = first;
 	dest->incr = incr;
+	dest->backward = backward;
 	*endptr = end;
 
 	return 1;
 }
 
 static int
-parse_right_aligned(const char *src) {
+parse_right(const char *src) {
 	const char *begin;
 	char *end;
-	struct seq col;
 
 	for (begin = src; ; begin = end + 1) {
-		if (!parse_seq(begin, &end, &col))
-			return 0;
-
-		if (ralign_len >= RALIGN_ALLOC) {
+		if (right_len >= RIGHT_ALLOC) {
 			errno = ENOMEM;
 			return 0;
 		}
 
-		ralign[ralign_len] = col;
-		ralign_len++;
+		if (!parse_seq(begin, &end, &right[right_len]))
+			return 0;
+
+		right_len++;
 
 		if (*end == '\0') {
 			break;
@@ -257,13 +259,8 @@ parse_right_aligned(const char *src) {
 
 static void
 parse_args(int argc, char *argv[]) {
+	const size_t dflt_term_width = term_width;
 	int opt;
-	size_t one_less;
-
-	if (term_width == 0)
-		one_less = SIZE_MAX;
-	else
-		one_less = term_width - 1;
 
 	while ((opt = getopt(argc, argv, ":d:sw:c:p:an:r:t")) != -1)
 		switch (opt) {
@@ -285,8 +282,8 @@ parse_args(int argc, char *argv[]) {
 			if (table)
 				usage_error();
 
-			if (one_less != SIZE_MAX && strcmp(optarg, "-1") == 0)
-				term_width = one_less;
+			if (dflt_term_width != 0 && strcmp(optarg, "-1") == 0)
+				term_width = dflt_term_width - 1;
 			else if (!to_size(optarg, &term_width))
 				die(optarg);
 
@@ -320,7 +317,7 @@ parse_args(int argc, char *argv[]) {
 			break;
 		case 'n':
 		case 'r':
-			if (!parse_right_aligned(optarg))
+			if (!parse_right(optarg))
 				die(optarg);
 
 			break;
@@ -351,7 +348,7 @@ slurp_input(void) {
 
 	while ((c = getwchar()) != WEOF) {
 		if (c == L'\0')
-			have_nuls = 1;
+			binary = 1;
 
 		if (buf_len + 1 >= buf_alloc) {
 			buf_alloc *= 2;
@@ -394,7 +391,7 @@ fix_eof(void) {
 static void
 init_parse(void) {
 	if (!words_only && delim == L'\0')
-		have_nuls = 0;
+		binary = 0;
 
 	fix_eof();
 
@@ -526,7 +523,7 @@ parse_list(void) {
 			}
 		}
 
-		if (!have_nuls)
+		if (!binary)
 			buf[begin + item.len] = L'\0';
 
 		save_item(&item);
@@ -563,14 +560,14 @@ static void
 init_lut(void) {
 	size_t i, j;
 
-	next_wider = xmalloc(list_len * sizeof next_wider[0]);
+	wider_next = xmalloc(list_len * sizeof wider_next[0]);
 
 	for (i = list_len; i-- > 0; ) {
 		j = i + 1;
 		while (j < list_len && list[i].width >= list[j].width)
-			j = next_wider[j];
+			j = wider_next[j];
 
-		next_wider[i] = j;
+		wider_next[i] = j;
 	}
 }
 
@@ -616,8 +613,8 @@ max_width(size_t col) {
 	i = col * num_rows;
 	j = MIN(i + num_rows, list_len);
 
-	while (next_wider[i] < j)
-		i = next_wider[i];
+	while (wider_next[i] < j)
+		i = wider_next[i];
 
 	return list[i].width;
 }
@@ -754,27 +751,33 @@ calc_sizes(void) {
 static void
 init_print(void) {
 	size_t i, j;
-	size_t incr, first, next;
+	size_t incr, first, last, next;
 
 	for (i = 0; i < num_cols; i++)
-		cols[i].right = 0;
+		cols[i].align_right = 0;
 
-	for (i = 0; i < ralign_len; i++) {
-		incr = ralign[i].incr;
-		if (ralign[i].first == 0) {
-			if (incr == 0 || incr >= num_cols)
-				first = num_cols;
-			else if (num_cols % incr == 0)
+	for (i = 0; i < right_len; i++) {
+		incr = right[i].incr;
+		if (right[i].backward) {
+			if (right[i].first > num_cols)
+				continue;
+
+			last = num_cols - right[i].first + 1;
+
+			if (incr == 0 || incr >= last)
+				first = last;
+			else if (last % incr == 0)
 				first = incr;
 			else
-				first = num_cols % incr;
+				first = last % incr;
 		}
 		else {
-			first = ralign[i].first;
+			first = right[i].first;
+			last = num_cols;
 		}
 
-		for (j = first - 1; j < num_cols; j = next) {
-			cols[j].right = 1;
+		for (j = first - 1; j < last; j = next) {
+			cols[j].align_right = 1;
 
 			next = j + incr;
 			if (next <= j)
@@ -798,7 +801,7 @@ static void
 print_data(const struct item *data) {
 	size_t i;
 	
-	if (have_nuls)
+	if (binary)
 		for (i = 0; i < data->len; i++)
 			putwchar(data->str[i]);
 	else
@@ -810,7 +813,7 @@ print_nonempty_cell(size_t i, size_t col, size_t sep) {
 	size_t blanks;
 
 	blanks = cols[col].width - list[i].width;
-	if (cols[col].right)
+	if (cols[col].align_right)
 		pad(blanks);
 	else
 		sep += blanks;
