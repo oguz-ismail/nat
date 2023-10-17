@@ -62,11 +62,18 @@ export LC_ALL=C
 unset COLUMNS
 
 input=
-arguments='-w -2'
+arguments='-c -1'
 environment=
 expected_output=
 expected_status=2
 run_test an invalid argument 2>/dev/null
+
+input='x\n'
+arguments='-w -78'
+environment=
+expected_output='x \n'
+expected_status=0
+run_test a negative width 2>&-
 
 input='x\nxx\n'
 arguments='-w 8'
@@ -314,28 +321,28 @@ expected_status=0
 run_test -1 as column number
 
 input='x\nxx\nx\nxx\nx\nxx\n'
-arguments='-w 10 -r 1:2'
+arguments='-w 10 -r 1~2'
 environment=
 expected_output=' x  x    x\nxx  xx  xx\n'
 expected_status=0
 run_test a sequence
 
 input='x\nxx\nx\nxx\nx\nxx\n'
-arguments='-w 10 -r -1:2'
+arguments='-w 10 -r -1~2'
 environment=
 expected_output=' x  x    x\nxx  xx  xx\n'
 expected_status=0
 run_test a backward sequence
 
 input='x\nxx\nx\nxx\nx\nxx\n'
-arguments='-w 10 -r -2:1'
+arguments='-w 10 -r -2~1'
 environment=
 expected_output=' x   x  x \nxx  xx  xx\n'
 expected_status=0
 run_test selecting the first half
 
 input='x\nxx\nx\nxx\nx\nxx\nx\nxx\nx\nxx\n'
-arguments='-w 18 -r 1,2:2,3'
+arguments='-w 18 -r 1,2~2,3'
 environment=
 expected_output=' x   x   x   x  x \nxx  xx  xx  xx  xx\n'
 expected_status=0

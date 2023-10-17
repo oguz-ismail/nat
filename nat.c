@@ -63,7 +63,7 @@ struct row {
 
 struct seq {
 	size_t first;
-	size_t incr;
+	size_t step;
 	int backward;
 };
 
@@ -78,7 +78,8 @@ static size_t list_alloc;
 static wchar_t delim;
 static int words_only;
 static size_t term_width;
-static int num_cols_set;
+static size_t orig_term_width;
+static int num_cols_given;
 static size_t padding;
 static int across;
 static int table;
@@ -86,7 +87,7 @@ static int table;
 static struct seq right[RIGHT_ALLOC];
 static size_t right_len;
 
-static int binary;
+static int have_nuls;
 
 static size_t num_rows;
 static size_t num_cols;
@@ -179,6 +180,30 @@ set_defaults(void) {
 		if (!env || !to_size(env, &term_width))
 			term_width = TERM_WIDTH;
 	}
+
+	orig_term_width = term_width;
+}
+
+static int
+parse_term_width(const char *src) {
+	size_t sub;
+
+	if (src[0] == '-') {
+		if (!to_size(&src[1], &sub)) {
+			return 0;
+		}
+		else if (sub > orig_term_width) {
+			errno = EINVAL;
+			return 0;
+		}
+
+		term_width = orig_term_width - sub;
+	}
+	else if (!to_size(src, &term_width)) {
+		return 0;
+	}
+
+	return 1;
 }
 
 static void
@@ -194,10 +219,10 @@ static int
 parse_seq(const char *src, char **endptr, struct seq *dest) {
 	const char *begin;
 	char *end;
-	size_t first, incr;
+	size_t first, step;
 	int backward;
 
-	incr = 0;
+	step = 0;
 	backward = 0;
 	begin = src;
 
@@ -214,15 +239,15 @@ parse_seq(const char *src, char **endptr, struct seq *dest) {
 		return 0;
 	}
 
-	if (*end == ':') {
+	if (*end == '~') {
 		begin = end + 1;
-		if (!parse_size(begin, &end, &incr)) {
+		if (!parse_size(begin, &end, &step)) {
 			return 0;
 		}
 	}
 
 	dest->first = first;
-	dest->incr = incr;
+	dest->step = step;
 	dest->backward = backward;
 	*endptr = end;
 
@@ -259,7 +284,6 @@ parse_right(const char *src) {
 
 static void
 parse_args(int argc, char *argv[]) {
-	const size_t dflt_term_width = term_width;
 	int opt;
 
 	while ((opt = getopt(argc, argv, ":d:sw:c:p:an:r:t")) != -1)
@@ -282,12 +306,10 @@ parse_args(int argc, char *argv[]) {
 			if (table)
 				usage_error();
 
-			if (dflt_term_width != 0 && strcmp(optarg, "-1") == 0)
-				term_width = dflt_term_width - 1;
-			else if (!to_size(optarg, &term_width))
+			if (!parse_term_width(optarg))
 				die(optarg);
 
-			num_cols_set = 0;
+			num_cols_given = 0;
 			break;
 		case 'c':
 			if (table)
@@ -302,7 +324,7 @@ parse_args(int argc, char *argv[]) {
 			}
 
 			term_width = SIZE_MAX;
-			num_cols_set = 1;
+			num_cols_given = 1;
 			break;
 		case 'p':
 			if (!to_size(optarg, &padding))
@@ -326,7 +348,7 @@ parse_args(int argc, char *argv[]) {
 				delim = L'\t';
 
 			term_width = SIZE_MAX;
-			num_cols_set = 0;
+			num_cols_given = 0;
 			across = 0;
 			table = 1;
 			num_cols = 0;
@@ -348,7 +370,7 @@ slurp_input(void) {
 
 	while ((c = getwchar()) != WEOF) {
 		if (c == L'\0')
-			binary = 1;
+			have_nuls = 1;
 
 		if (buf_len + 1 >= buf_alloc) {
 			buf_alloc *= 2;
@@ -391,7 +413,7 @@ fix_eof(void) {
 static void
 init_parse(void) {
 	if (!words_only && delim == L'\0')
-		binary = 0;
+		have_nuls = 0;
 
 	fix_eof();
 
@@ -523,7 +545,7 @@ parse_list(void) {
 			}
 		}
 
-		if (!binary)
+		if (!have_nuls)
 			buf[begin + item.len] = L'\0';
 
 		save_item(&item);
@@ -575,7 +597,7 @@ static void
 init_calc(void) {
 	size_t max_cols;
 
-	if (num_cols_set) {
+	if (num_cols_given) {
 		if (num_cols > list_len)
 			max_cols = list_len;
 		else if (across)
@@ -719,7 +741,7 @@ static void
 calc_sizes(void) {
 	init_calc();
 
-	if (num_cols_set) {
+	if (num_cols_given) {
 		if (across) {
 			num_rows = calc_from(num_cols);
 			init_cols_across();
@@ -751,25 +773,25 @@ calc_sizes(void) {
 static void
 init_print(void) {
 	size_t i, j;
-	size_t incr, first, last, next;
+	size_t step, first, last, next;
 
 	for (i = 0; i < num_cols; i++)
 		cols[i].align_right = 0;
 
 	for (i = 0; i < right_len; i++) {
-		incr = right[i].incr;
+		step = right[i].step;
 		if (right[i].backward) {
 			if (right[i].first > num_cols)
 				continue;
 
 			last = num_cols - right[i].first + 1;
 
-			if (incr == 0 || incr >= last)
+			if (step == 0 || step >= last)
 				first = last;
-			else if (last % incr == 0)
-				first = incr;
+			else if (last % step == 0)
+				first = step;
 			else
-				first = last % incr;
+				first = last % step;
 		}
 		else {
 			first = right[i].first;
@@ -779,7 +801,7 @@ init_print(void) {
 		for (j = first - 1; j < last; j = next) {
 			cols[j].align_right = 1;
 
-			next = j + incr;
+			next = j + step;
 			if (next <= j)
 				break;
 		}
@@ -801,7 +823,7 @@ static void
 print_data(const struct item *data) {
 	size_t i;
 	
-	if (binary)
+	if (have_nuls)
 		for (i = 0; i < data->len; i++)
 			putwchar(data->str[i]);
 	else
