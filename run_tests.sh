@@ -73,28 +73,28 @@ arguments='-w -78'
 environment=
 expected_output='x \n'
 expected_status=0
-run_test a negative width 2>&-
+run_test a relative width 2>/dev/null
 
 input='x\nxx\n'
 arguments='-w 8'
 environment=
 expected_output='x  xx   \n'
 expected_status=0
-run_test an output wider than list
+run_test more than enough room
 
 input='x\nx\n'
 arguments='-p 2 -w 1'
 environment=
 expected_output=$input
 expected_status=0
-run_test a padding wider than output
+run_test no room for padding
 
 input='x\n'
 arguments='-w 0'
 environment=
 expected_output='\n'
 expected_status=1
-run_test an output of zero width
+run_test no room at all
 
 input='xy'
 arguments='-d y -w 1'
@@ -108,14 +108,14 @@ arguments='-d "" -w 1'
 environment=
 expected_output='x\nx\n'
 expected_status=0
-run_test a NUL as delimiter
+run_test NUL as delimiter
 
 input='x\n'
 arguments=
 environment='COLUMNS=2'
 expected_output='x \n'
 expected_status=0
-run_test '$COLUMNS' 2>/dev/null
+run_test COLUMNS 2>/dev/null
 
 input=
 arguments=
@@ -157,21 +157,21 @@ arguments='-w 1'
 environment=
 expected_output='x\n'
 expected_status=1
-run_test an item wider than output
+run_test not enough room
 
 input='x\nxx\n'
 arguments='-w 4'
 environment=
 expected_output='x   \nxx  \n'
 expected_status=0
-run_test a list wider than output
+run_test room for one column only
 
 input='\0x\nx\n'
 arguments='-w 4'
 environment=
 expected_output='\0x  x\n'
 expected_status=0
-run_test an item containing a NUL
+run_test an item containing NULs
 
 input='xx\nx\nx\nx\nx\nx\nxx\nx\nxx\n'
 arguments='-w 9'
@@ -213,14 +213,14 @@ arguments='-c 3'
 environment=
 expected_output='x  x  \nx  x  \n'
 expected_status=0
-run_test a vacant column
+run_test an unused column
 
 input='x\nx\nx\nx\n'
 arguments='-c 3 -a'
 environment=
 expected_output='x  x  x\nx      \n'
 expected_status=0
-run_test -a -c
+run_test -c with -a
 
 input='xx\n'
 arguments='-w 1 -c 1'
@@ -241,7 +241,7 @@ arguments='-t'
 environment=
 expected_output='x  x\n   x\n'
 expected_status=0
-run_test an empty field
+run_test an empty cell
 
 input='x\nx\tx\n'
 arguments='-t'
@@ -293,14 +293,14 @@ expected_status=0
 run_test trailing whitespace
 
 input='x x\n x\tx\n'
-arguments='-s -t'
+arguments='-t -s'
 environment=
 expected_output='x  x\nx  x\n'
 expected_status=0
-run_test -s -t
+run_test -t with -s
 
 input=' '
-arguments='-s -t'
+arguments='-t -s'
 environment=
 expected_output='\n'
 expected_status=0
@@ -318,7 +318,7 @@ arguments='-w 6 -r -1'
 environment=
 expected_output='x    x\nxx  xx\n'
 expected_status=0
-run_test -1 as column number
+run_test a negative column number
 
 input='x\nxx\nx\nxx\nx\nxx\n'
 arguments='-w 10 -r 1~2'
@@ -341,11 +341,11 @@ expected_output=' x   x  x \nxx  xx  xx\n'
 expected_status=0
 run_test selecting the first half
 
-input='x\nxx\nx\nxx\nx\nxx\nx\nxx\nx\nxx\n'
-arguments='-w 18 -r 1,2~2,3'
+input='x\nxx\nx\nxx\nx\nxx\nx\nxx\n'
+arguments='-w 14 -r 1~3,2~2'
 environment=
-expected_output=' x   x   x   x  x \nxx  xx  xx  xx  xx\n'
+expected_output=' x   x  x    x\nxx  xx  xx  xx\n'
 expected_status=0
-run_test a list of sequences
+run_test sequences overlapping
 
 # vim: fdm=marker

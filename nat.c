@@ -83,6 +83,7 @@ static int num_cols_given;
 static size_t padding;
 static int across;
 static int table;
+static int info;
 
 static struct seq right[RIGHT_ALLOC];
 static size_t right_len;
@@ -92,7 +93,7 @@ static int have_nuls;
 static size_t num_rows;
 static size_t num_cols;
 static struct col *cols;
-static size_t blank_space;
+static size_t unused_space;
 static size_t *wider_next;
 static struct row *rows;
 static size_t rows_alloc;
@@ -210,8 +211,9 @@ static void
 usage_error(void) {
 	fputs("Usage:\
 \tnat [-d delimiter|-s] [-w width|-c columns] [-p padding] [-a]\n\
-\t    [-r column[,column]...]\n\
-\tnat -t [-d delimiter|-s] [-p padding] [-r column[,column]...]\n", stderr);
+\t    [-r column[,column]...] [-I]\n\
+\tnat -t [-d delimiter|-s] [-p padding] [-r column[,column]...]\n\
+\t    [-I]\n", stderr);
 	exit(2);
 }
 
@@ -255,7 +257,7 @@ parse_seq(const char *src, char **endptr, struct seq *dest) {
 }
 
 static int
-parse_right(const char *src) {
+parse_right_aligned(const char *src) {
 	const char *begin;
 	char *end;
 
@@ -286,7 +288,7 @@ static void
 parse_args(int argc, char *argv[]) {
 	int opt;
 
-	while ((opt = getopt(argc, argv, ":d:sw:c:p:an:r:t")) != -1)
+	while ((opt = getopt(argc, argv, ":d:sw:c:p:an:r:tI")) != -1)
 		switch (opt) {
 		case 'd':
 			if (mbtowc(&delim, optarg, strlen(optarg) + 1) == -1) {
@@ -339,7 +341,7 @@ parse_args(int argc, char *argv[]) {
 			break;
 		case 'n':
 		case 'r':
-			if (!parse_right(optarg))
+			if (!parse_right_aligned(optarg))
 				die(optarg);
 
 			break;
@@ -352,6 +354,9 @@ parse_args(int argc, char *argv[]) {
 			across = 0;
 			table = 1;
 			num_cols = 0;
+			break;
+		case 'I':
+			info = 1;
 			break;
 		default:
 			usage_error();
@@ -605,7 +610,7 @@ init_calc(void) {
 		else
 			max_cols = calc_from(calc_from(num_cols));
 
-		blank_space = (num_cols - max_cols) * padding;
+		unused_space = (num_cols - max_cols) * padding;
 	}
 	else if (table) {
 		max_cols = num_cols;
@@ -702,7 +707,7 @@ fits(void) {
 	}
 
 	init_cols();
-	blank_space = term_width - width;
+	unused_space = term_width - width;
 	return 1;
 }
 
@@ -733,7 +738,7 @@ fits_across(void) {
 			j = 0;
 	}
 
-	blank_space = term_width - width;
+	unused_space = term_width - width;
 	return 1;
 }
 
@@ -809,6 +814,35 @@ init_print(void) {
 }
 
 static void
+print_info(void) {
+	size_t i;
+	size_t width;
+
+	printf("%zu", list_len);
+
+	if (num_cols_given || table) {
+		width = (num_cols - 1) * padding;
+		for (i = 0; i < num_cols; i++)
+			width += cols[i].width;
+
+		printf(" %zu", width);
+	}
+	else {
+		printf(" %zu", term_width);
+	}
+
+	printf(" %zu", num_rows);
+	printf(" %zu", num_cols);
+	printf(" %zu", unused_space);
+
+	for (i = 0; i < num_cols; i++)
+		if (cols[i].align_right)
+			printf(" %zu", i + 1);
+
+	printf("\n");
+}
+
+static void
 pad(size_t n) {
 	static const wchar_t s[] = L"        ";
 	static const size_t slen = (sizeof s / sizeof s[0]) - 1;
@@ -832,13 +866,13 @@ print_data(const struct item *data) {
 
 static void
 print_nonempty_cell(size_t i, size_t col, size_t sep) {
-	size_t blanks;
+	size_t unused;
 
-	blanks = cols[col].width - list[i].width;
+	unused = cols[col].width - list[i].width;
 	if (cols[col].align_right)
-		pad(blanks);
+		pad(unused);
 	else
-		sep += blanks;
+		sep += unused;
 
 	print_data(&list[i]);
 	pad(sep);
@@ -862,7 +896,7 @@ print_cell(size_t row, size_t col, size_t sep) {
 static void
 print_table(void) {
 	size_t i, j, k, l;
-	size_t blanks;
+	size_t unused;
 
 	i = 0;
 	for (j = 0; j < num_rows; j++) {
@@ -872,11 +906,11 @@ print_table(void) {
 			k++;
 		}
 
-		blanks = 0;
+		unused = 0;
 		for (l = k + 1; l < num_cols; l++)
-			blanks += padding + cols[l].width;
+			unused += padding + cols[l].width;
 
-		print_nonempty_cell(i, k, blanks);
+		print_nonempty_cell(i, k, unused);
 		putwchar(L'\n');
 		
 		i++;
@@ -889,7 +923,10 @@ print_cols(void) {
 
 	init_print();
 
-	if (table) {
+	if (info) {
+		print_info();
+	}
+	else if (table) {
 		print_table();
 	}
 	else {
@@ -897,7 +934,7 @@ print_cols(void) {
 			for (j = 0; j < num_cols - 1; j++)
 				print_cell(i, j, padding);
 
-			print_cell(i, j, blank_space);
+			print_cell(i, j, unused_space);
 			putwchar(L'\n');
 		}
 	}

@@ -13,40 +13,42 @@
 .\" You should have received a copy of the GNU General Public License
 .\" along with this program. If not, see <https://www.gnu.org/licenses/>.
 .
-.TH NAT 1 "19 Oct 2023"
+.TH NAT 1 "21 Oct 2023"
 .SH NAME
 nat \- columnate lists
 .SH SYNOPSIS
 .PP
 \fBnat\fP
-[\fB-d\fP\ \fIdelimiter\fP|\fB-s\fP]
-[\fB-w\fP\ \fIwidth\fP|\fB-c\fP\ \fIcolumns\fP]
-[\fB-p\fP\ \fIpadding\fP]
-[\fB-a\fP]
-[\fB-r\fP\ \fIcolumn\fP[,\fIcolumn\fP]...]
+[\fB\-d\fP\ \fIdelimiter\fP|\fB\-s\fP]
+[\fB\-w\fP\ \fIwidth\fP|\fB\-c\fP\ \fIcolumns\fP]
+[\fB\-p\fP\ \fIpadding\fP]
+[\fB\-a\fP]
+[\fB\-r\fP\ \fIcolumn\fP[,\fIcolumn\fP]...]
+[\fB\-I\fP]
 .PP
 \fBnat\fP
-.B -t
-[\fB-d\fP\ \fIdelimiter\fP|\fB-s\fP]
-[\fB-p\fP\ \fIpadding\fP]
-[\fB-r\fP\ \fIcolumn\fP[,\fIcolumn\fP]...]
+.B \-t
+[\fB\-d\fP\ \fIdelimiter\fP|\fB\-s\fP]
+[\fB\-p\fP\ \fIpadding\fP]
+[\fB\-r\fP\ \fIcolumn\fP[,\fIcolumn\fP]...]
+[\fB\-I\fP]
 .SH DESCRIPTION
 .B nat
 reads a list from the standard input and columnates it. It accepts the 
 following options and no operands:
 .TP
-\fB-d\fP \fIdelimiter\fP
+\fB\-d\fP \fIdelimiter\fP
 Input items are terminated by the character
 .I delimiter
 instead of newline. Empty string means NUL.
 .TP
-\fB-s\fP
+\fB\-s\fP
 Input items are separated by white space. Leading and trailing white space are
 ignored. This and the option
-.B -d
+.B \-d
 are mutually exclusive.
 .TP
-\fB-w\fP \fIwidth\fP
+\fB\-w\fP \fIwidth\fP
 The output occupies exactly
 .I width
 character columns. If
@@ -55,22 +57,22 @@ is negative, its absolute value is subtracted from the default value; which is
 the width of the terminal the standard error is connected to, the value of the
 environment variable \fICOLUMNS\fP, or 80.
 .TP
-\fB-c\fP \fIcolumns\fP
+\fB\-c\fP \fIcolumns\fP
 The output is arranged in
 .I columns
 columns. This and the option
-.B -w
+.B \-w
 are mutually exclusive.
 .TP
-\fB-p\fP \fIpadding\fP
+\fB\-p\fP \fIpadding\fP
 Columns are separated by
 .I padding
 spaces instead of 2.
 .TP
-\fB-a\fP
+\fB\-a\fP
 Columns are filled across rather than down.
 .TP
-\fB-r\fP \fIcolumn\fP[,\fIcolumn\fP]...
+\fB\-r\fP \fIcolumn\fP[,\fIcolumn\fP]...
 The \fIcolumn\fPth column is right-aligned. If
 .I column
 is followed by a
@@ -79,30 +81,55 @@ is followed by a
 \fIcolumn\fPth is also right-aligned. If
 .I column
 is preceded by a
-.I -
+.I \-
 (hyphen), columns are numbered and counted from right to left instead of left
-to right.
-.sp
+to right. This option can be specified more than once.
+.PP
+.RS
 The option
-.B -n
-is an alias for \fB-r\fP.
+.B \-n
+is an alias for \fB\-r\fP.
+.RE
 .TP
-\fB-t\fP
+\fB\-t\fP
 The input is already columnated. The delimiter specified using the options
-.B -d
+.B \-d
 and
-.B -s
+.B \-s
 separates input columns.
 .B nat
 replaces each separator with as many spaces as needed to align column contents
 and adds padding. If a delimiter is not specified, the tab character is used.
-This and the options \fB-w\fP, \fB-c\fP, and
-.B -a
+This and the options \fB\-w\fP, \fB\-c\fP, and
+.B \-a
 are incompatible.
+.TP
+\fB\-I\fP (capital \fBi\fP)
+The default output is supressed, and a single line of space-separated numbers
+is printed instead. From left to right, these numbers denote the following:
+.PP
+.RS
+.RS
+.PD 0
+.IP 1.
+The number of input items.
+.IP 2.
+The width of the output.
+.IP 3.
+The number of output rows.
+.IP 4.
+The number of output columns.
+.IP 5.
+The number of character columns that were not used.
+.IP 6.
+Numbers of right-aligned columns, separated by spaces.
+.PD
+.RE
+.RE
 .PP
 Each column is as wide as its widest item, and rows are always of equal width.
 If the number of columns is not specified and the option
-.B -t
+.B \-t
 is not used,
 .B nat
 truncates list items wider than the implied or specified output width.
