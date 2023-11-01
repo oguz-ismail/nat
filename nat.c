@@ -26,6 +26,7 @@
 #define wcwidth mk_wcwidth
 #endif
 
+#include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <locale.h>
@@ -77,6 +78,7 @@ static size_t list_alloc;
 
 static wchar_t delim;
 static int words_only;
+static int have_colors;
 static size_t term_width;
 static size_t orig_term_width;
 static int num_cols_given;
@@ -144,6 +146,9 @@ parse_size(const char *src, char **endptr, size_t *dest) {
 		return 0;
 	}
 
+	while (isspace(*end))
+		end++;
+
 	*dest = u;
 	*endptr = end;
 
@@ -210,9 +215,9 @@ parse_term_width(const char *src) {
 static void
 usage_error(void) {
 	fputs("Usage:\
-\tnat [-d delimiter|-s] [-w width|-c columns] [-p padding] [-a]\n\
+\tnat [-d delimiter|-s] [-R] [-w width|-c columns] [-p padding] [-a]\n\
 \t    [-r column[,column]...] [-I]\n\
-\tnat -t [-d delimiter|-s] [-p padding] [-r column[,column]...]\n\
+\tnat -t [-d delimiter|-s] [-R] [-p padding] [-r column[,column]...]\n\
 \t    [-I]\n", stderr);
 	exit(2);
 }
@@ -288,7 +293,7 @@ static void
 parse_args(int argc, char *argv[]) {
 	int opt;
 
-	while ((opt = getopt(argc, argv, ":d:sw:c:p:an:r:tI")) != -1)
+	while ((opt = getopt(argc, argv, ":d:sRw:c:p:axn:r:tI")) != -1)
 		switch (opt) {
 		case 'd':
 			if (mbtowc(&delim, optarg, strlen(optarg) + 1) == -1) {
@@ -303,6 +308,9 @@ parse_args(int argc, char *argv[]) {
 			break;
 		case 's':
 			words_only = 1;
+			break;
+		case 'R':
+			have_colors = 1;
 			break;
 		case 'w':
 			if (table)
@@ -333,6 +341,7 @@ parse_args(int argc, char *argv[]) {
 				die(optarg);
 
 			break;
+		case 'x':
 		case 'a':
 			if (table)
 				usage_error();
@@ -443,17 +452,44 @@ skip_whitespace(size_t begin) {
 }
 
 static size_t
-parse_item(size_t begin, struct item *dest) {
-	size_t len, width;
-	int truncated;
+skip_color(size_t begin) {
 	size_t i;
+
+	i = begin;
+	if (buf_len - i < 3 || buf[i] != L'\33' || buf[i + 1] != L'[')
+		return begin;
+
+	i += 2;
+	for (; i < buf_len; i++)
+		if ((buf[i] < L'0' || buf[i] > L'9') && buf[i] != L';')
+			break;
+
+	if (i == buf_len || buf[i] != L'm')
+		return begin;
+
+	return i;
+}
+
+static size_t
+parse_item(size_t begin, struct item *dest) {
+	int truncated;
+	size_t len, width;
+	size_t i, j;
 	int w;
 
+	truncated = 0;
 	len = 0;
 	width = 0;
-	truncated = 0;
 
 	for (i = begin; i < buf_len; i++) {
+		if (have_colors && (j = skip_color(i)) != i) {
+			if (!truncated)
+				len += (j - i) + 1;
+
+			i = j;
+			continue;
+		}
+
 		if (words_only) {
 			if (iswspace(buf[i]))
 				break;
@@ -785,6 +821,7 @@ init_print(void) {
 
 	for (i = 0; i < right_len; i++) {
 		step = right[i].step;
+
 		if (right[i].backward) {
 			if (right[i].first > num_cols)
 				continue;

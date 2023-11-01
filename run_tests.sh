@@ -348,4 +348,9 @@ expected_output=' x   x  x    x\nxx  xx  xx  xx\n'
 expected_status=0
 run_test sequences overlapping
 
-# vim: fdm=marker
+input='\33[mx\n'
+arguments='-R -w 4'
+environment=
+expected_output='\33[mx   \n'
+expected_status=0
+run_test -R
