@@ -873,10 +873,13 @@ print_info(void) {
 	printf(" %zu", unused_space);
 
 	for (i = 0; i < num_cols; i++)
+		printf(" %zu", cols[i].width);
+
+	for (i = 0; i < num_cols; i++)
 		if (cols[i].align_right)
 			printf(" %zu", i + 1);
 
-	printf("\n");
+	putchar('\n');
 }
 
 static void

@@ -354,3 +354,5 @@ environment=
 expected_output='\33[mx   \n'
 expected_status=0
 run_test -R
+
+# vim: fdm=marker

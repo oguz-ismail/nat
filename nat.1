@@ -13,7 +13,7 @@
 .\" You should have received a copy of the GNU General Public License
 .\" along with this program. If not, see <https://www.gnu.org/licenses/>.
 .
-.TH NAT 1 "1 Nov 2023"
+.TH NAT 1 "3 Nov 2023"
 .SH NAME
 nat \- columnate lists
 .SH SYNOPSIS
@@ -113,7 +113,8 @@ This and the options \fB\-w\fP, \fB\-c\fP, and
 are incompatible.
 .TP
 \fB\-R\fP
-ANSI color escape sequences found in the input are treated the same way as control characters.
+ANSI color escape sequences found in the input are treated the same way as
+control characters.
 .TP
 \fB\-I\fP (capital \fBi\fP)
 The default output is supressed, and a single line of space-separated numbers
@@ -133,6 +134,8 @@ The number of output columns.
 .IP 5.
 The number of character columns that were not used.
 .IP 6.
+Widths of columns, separated by spaces.
+.IP 7.
 Numbers of right-aligned columns, separated by spaces.
 .PD
 .RE
