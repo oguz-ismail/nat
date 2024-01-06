@@ -1,4 +1,4 @@
-/* Copyright 2022, 2023 Oğuz İsmail Uysal <oguzismailuysal@gmail.com>
+/* Copyright 2022, 2023, 2024 Oğuz İsmail Uysal <oguzismailuysal@gmail.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -78,6 +78,7 @@ static size_t list_alloc;
 
 static wchar_t delim;
 static int words_only;
+static int phrases_too;
 static int have_colors;
 static size_t term_width;
 static size_t orig_term_width;
@@ -215,9 +216,9 @@ parse_term_width(const char *src) {
 static void
 usage_error(void) {
 	fputs("Usage:\
-\tnat [-d delimiter|-s] [-R] [-w width|-c columns] [-p padding] [-a]\n\
+\tnat [-d delimiter|-s|-S] [-R] [-w width|-c columns] [-p padding] [-a]\n\
 \t    [-r column[,column]...] [-I]\n\
-\tnat -t [-d delimiter|-s] [-R] [-p padding] [-r column[,column]...]\n\
+\tnat -t [-d delimiter|-s|-S] [-R] [-p padding] [-r column[,column]...]\n\
 \t    [-I]\n", stderr);
 	exit(2);
 }
@@ -293,7 +294,7 @@ static void
 parse_args(int argc, char *argv[]) {
 	int opt;
 
-	while ((opt = getopt(argc, argv, ":d:sRw:c:p:axn:r:tI")) != -1)
+	while ((opt = getopt(argc, argv, ":d:sSRw:c:p:axn:r:tI")) != -1)
 		switch (opt) {
 		case 'd':
 			if (mbtowc(&delim, optarg, strlen(optarg) + 1) == -1) {
@@ -308,6 +309,10 @@ parse_args(int argc, char *argv[]) {
 			break;
 		case 's':
 			words_only = 1;
+			break;
+		case 'S':
+			words_only = 1;
+			phrases_too = 1;
 			break;
 		case 'R':
 			have_colors = 1;
@@ -408,15 +413,19 @@ fix_eof(void) {
 
 	eof = buf[buf_len - 1];
 
-	if (!table && !words_only && delim != L'\n' && eof == L'\n') {
+	if (table) {
+		correct_eof = L'\n';
+	}
+	else if (words_only) {
+		return;
+	}
+	else if (delim != L'\n' && eof == L'\n') {
 		buf[buf_len - 1] = delim;
 		return;
 	}
-
-	if (table)
-		correct_eof = L'\n';
-	else
+	else {
 		correct_eof = delim;
+	}
 
 	if (eof != correct_eof) {
 		buf[buf_len] = correct_eof;
@@ -470,6 +479,24 @@ skip_color(size_t begin) {
 	return i;
 }
 
+static int
+is_delimiter(size_t i) {
+	if (words_only) {
+		if (phrases_too && buf[i] == L' ') {
+			if (i >= buf_len - 1 || iswspace(buf[i + 1]))
+				return 1;
+		}
+		else if (iswspace(buf[i])) {
+			return 1;
+		}
+	}
+	else if (buf[i] == delim || (table && buf[i] == L'\n')) {
+		return 1;
+	}
+
+	return 0;
+}
+
 static size_t
 parse_item(size_t begin, struct item *dest) {
 	int truncated;
@@ -490,15 +517,7 @@ parse_item(size_t begin, struct item *dest) {
 			continue;
 		}
 
-		if (words_only) {
-			if (iswspace(buf[i]))
-				break;
-		}
-		else if (buf[i] == delim) {
-			break;
-		}
-
-		if (table && buf[i] == L'\n')
+		if (is_delimiter(i))
 			break;
 
 		if (truncated)

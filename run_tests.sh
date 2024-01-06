@@ -1,4 +1,4 @@
-# Copyright 2023 Oğuz İsmail Uysal <oguzismailuysal@gmail.com>
+# Copyright 2023, 2024 Oğuz İsmail Uysal <oguzismailuysal@gmail.com>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -354,5 +354,19 @@ environment=
 expected_output='\33[mx   \n'
 expected_status=0
 run_test -R
+
+input='x x  x'
+arguments='-S -w 3'
+environment=
+expected_output='x x\nx  \n'
+expected_status=0
+run_test -S
+
+input='x '
+arguments='-S -w 1'
+environment=
+expected_output='x\n'
+expected_status=0
+run_test trailing space with -S
 
 # vim: fdm=marker
