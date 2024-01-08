@@ -38,7 +38,7 @@ build_expected_result() {
 
 run_scenario() {
 	escape_for_printf input
-	printf "$input" | eval "$environment $binary $arguments"
+	printf "$input" | eval "$environment $program $arguments"
 	printf 'x%s\n' $?
 }
 
@@ -57,7 +57,7 @@ run_test() {
 }
 # }}}
 
-binary=./nat
+program=./nat
 export LC_ALL=C
 unset COLUMNS
 
@@ -88,6 +88,13 @@ environment=
 expected_output=$input
 expected_status=0
 run_test no room for padding
+
+input='\n\n'
+arguments='-p 2 -w 1'
+environment=
+expected_output=' \n \n'
+expected_status=0
+run_test 'no room for padding #2'
 
 input='x\n'
 arguments='-w 0'
@@ -263,6 +270,13 @@ environment=
 expected_output='  \n'
 expected_status=0
 run_test 'corner case #1'
+
+input='x\tx\tx\n'
+arguments='-t -c 2'
+environment=
+expected_output='x  x\tx\n'
+expected_status=0
+run_test -t with -c
 
 input='x x\tx\nx\n'
 arguments='-s -w 10'

@@ -13,7 +13,7 @@
 .\" You should have received a copy of the GNU General Public License
 .\" along with this program. If not, see <https://www.gnu.org/licenses/>.
 .
-.TH NAT 1 "6 Jan 2024"
+.TH NAT 1 "9 Jan 2024"
 .SH NAME
 nat \- columnate lists
 .SH SYNOPSIS
@@ -31,6 +31,7 @@ nat \- columnate lists
 .B \-t
 [\fB\-d\fP\ \fIdelimiter\fP|\fB\-s\fP|\fB\-S\fP]
 [\fB\-R\fP]
+[\fB\-c\fP\ \fIcolumns\fP]
 [\fB\-p\fP\ \fIpadding\fP]
 [\fB\-r\fP\ \fIcolumn\fP[,\fIcolumn\fP]...]
 [\fB\-I\fP]
@@ -71,6 +72,10 @@ The output is arranged in
 columns. This and the option
 .B \-w
 are mutually exclusive.
+.TP
+\fB\-c\fP \fIcolumns\fP along with \fB\-t\fP
+The input comprises \fIcolumns\fP columns at most. Excess delimiters are part
+of the rightmost column.
 .TP
 \fB\-p\fP \fIpadding\fP
 Columns are separated by
