@@ -14,6 +14,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#define _GNU_SOURCE
+
 #if defined(__GNUC__) && __GNUC__ < 5
 #define restrict __restrict
 #endif
@@ -23,7 +25,9 @@
 #include <termios.h>
 #endif
 
+#if !defined(_XOPEN_SOURCE)
 #define _XOPEN_SOURCE 600
+#endif
 
 #if defined(__QNX__)
 #include "wcwidth.c"
@@ -42,6 +46,12 @@
 #include <unistd.h>
 #include <wchar.h>
 #include <wctype.h>
+
+#if defined(__GLIBC__)
+#define getwchar getwchar_unlocked
+#define putwchar putwchar_unlocked
+#define fputws fputws_unlocked
+#endif
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
@@ -76,7 +86,6 @@ static int table;
 static size_t tail;
 
 static size_t term_width = 80;
-static size_t term_width_base;
 static size_t padding;
 static int across;
 static int info;
@@ -96,7 +105,7 @@ static size_t num_cols;
 static struct col *cols;
 static struct row *rows;
 static size_t rows_alloc = 8;
-static size_t leftover;
+static size_t surplus;
 static size_t *wider;
 static int status;
 
@@ -104,6 +113,16 @@ static void die(const char *);
 static void *xmalloc(size_t);
 static void *xrealloc(void *, size_t);
 static int xwcwidth(wchar_t);
+
+static void
+usage_error(void) {
+	fputs("Usage:\
+\tnat [-d delimiter|-s|-S] [-R] [-w width|-c columns] [-p padding] [-a]\n\
+\t    [-r column[,column]...] [-I]\n\
+\tnat -t [-d delimiter|-s|-S] [-R] [-c columns] [-p padding]\n\
+\t    [-r column[,column]...] [-I]\n", stderr);
+	exit(2);
+}
 
 static int
 parse_size(const char *s, char **endp, size_t *dst) {
@@ -179,41 +198,30 @@ set_defaults(void) {
 	else if ((env = getenv("COLUMNS")))
 		to_size(env, &term_width);
 
-	term_width_base = term_width;
 	delim = L'\n';
 	padding = 2;
 }
 
 static int
-parse_term_width(const char *s) {
-	size_t dec;
+parse_width(const char *s) {
+	size_t x;
 
 	if (*s == '-') {
-		if (!to_size(&s[1], &dec)) {
+		if (!to_size(&s[1], &x)) {
 			return 0;
 		}
-		else if (dec > term_width_base) {
+		else if (x > term_width) {
 			errno = EINVAL;
 			return 0;
 		}
 
-		term_width = term_width_base-dec;
+		term_width -= x;
 	}
 	else if (!to_size(s, &term_width)) {
 		return 0;
 	}
 
 	return 1;
-}
-
-static void
-usage_error(void) {
-	fputs("Usage:\
-\tnat [-d delimiter|-s|-S] [-R] [-w width|-c columns] [-p padding] [-a]\n\
-\t    [-r column[,column]...] [-I]\n\
-\tnat -t [-d delimiter|-s|-S] [-R] [-c columns] [-p padding]\n\
-\t    [-r column[,column]...] [-I]\n", stderr);
-	exit(2);
 }
 
 static int
@@ -253,7 +261,7 @@ parse_seq(const char *p, char **endp, struct seq *dst) {
 }
 
 static int
-parse_right_aligned(const char *p) {
+parse_right(const char *p) {
 	char *end;
 
 	for (;;) {
@@ -282,7 +290,7 @@ parse_right_aligned(const char *p) {
 static void
 parse_args(int argc, char *argv[]) {
 	int opt;
-	size_t n;
+	size_t x;
 
 	while ((opt = getopt(argc, argv, ":d:sSRw:c:p:axn:r:tI")) != -1)
 		switch (opt) {
@@ -312,25 +320,25 @@ parse_args(int argc, char *argv[]) {
 			if (table)
 				usage_error();
 
-			if (!parse_term_width(optarg))
+			if (!parse_width(optarg))
 				die(optarg);
 
 			cols_fixed = 0;
 			break;
 		case 'c':
-			if (!to_size(optarg, &n)) {
+			if (!to_size(optarg, &x)) {
 				die(optarg);
 			}
-			else if (n == 0) {
+			else if (x == 0) {
 				errno = EINVAL;
 				die("-c");
 			}
 
 			if (table) {
-				tail = n;
+				tail = x;
 			}
 			else {
-				num_cols = n;
+				num_cols = x;
 				cols_fixed = 1;
 			}
 
@@ -349,7 +357,7 @@ parse_args(int argc, char *argv[]) {
 			break;
 		case 'n':
 		case 'r':
-			if (!parse_right_aligned(optarg))
+			if (!parse_right(optarg))
 				die(optarg);
 
 			break;
@@ -445,7 +453,7 @@ init_parse(void) {
 }
 
 static size_t
-skip_whitespace(size_t i) {
+skip_spaces(size_t i) {
 	for (; i < buf_len; i++)
 		if (!iswspace(buf[i]) || (table && buf[i] == L'\n'))
 			break;
@@ -471,7 +479,7 @@ skip_color(size_t i) {
 }
 
 static int
-is_delimiter(size_t i) {
+is_delim(size_t i) {
 	if (words) {
 		if (sentences && buf[i] == L' ') {
 			if (i >= buf_len-1 || iswspace(buf[i+1]))
@@ -525,7 +533,7 @@ parse_item(size_t begin, struct item *dst) {
 	size_t len, width;
 	int truncated;
 	size_t i, j;
-	int n;
+	int x;
 
 	len = 0;
 	width = 0;
@@ -540,20 +548,20 @@ parse_item(size_t begin, struct item *dst) {
 			continue;
 		}
 
-		if (is_delimiter(i))
+		if (is_delim(i))
 			break;
 
 		if (truncated)
 			continue;
 
-		n = xwcwidth(buf[i]);
-		if (!cols_fixed && width+n > term_width) {
+		x = xwcwidth(buf[i]);
+		if (!cols_fixed && width+x > term_width) {
 			truncated = 1;
 			continue;
 		}
 
 		len++;
-		width += n;
+		width += x;
 	}
 
 	dst->text = &buf[begin];
@@ -599,7 +607,7 @@ parse_list(void) {
 	init_parse();
 
 	if (words)
-		i = skip_whitespace(0);
+		i = skip_spaces(0);
 	else
 		i = 0;
 
@@ -612,7 +620,7 @@ parse_list(void) {
 			end = parse_item(i, &item);
 
 		if (words)
-			end = skip_whitespace(end);
+			end = skip_spaces(end);
 
 		if (table) {
 			fields++;
@@ -632,7 +640,7 @@ parse_list(void) {
 
 		if (words) {
 			if (table && eol)
-				i = skip_whitespace(end+1);
+				i = skip_spaces(end+1);
 			else
 				i = end;
 		}
@@ -688,7 +696,7 @@ init_calc(void) {
 		else
 			max_cols = calc_from(calc_from(num_cols));
 
-		leftover = (num_cols-max_cols)*padding;
+		surplus = (num_cols-max_cols)*padding;
 	}
 	else {
 		if (padding == 0) 
@@ -781,7 +789,7 @@ fits(void) {
 	}
 
 	init_cols();
-	leftover = term_width-width;
+	surplus = term_width-width;
 
 	return 1;
 }
@@ -813,7 +821,7 @@ fits_across(void) {
 			col = 0;
 	}
 
-	leftover = term_width-width;
+	surplus = term_width-width;
 
 	return 1;
 }
@@ -908,7 +916,7 @@ print_info(void) {
 	printf(" %zu", width);
 	printf(" %zu", num_rows);
 	printf(" %zu", num_cols);
-	printf(" %zu", leftover);
+	printf(" %zu", surplus);
 
 	for (i = 0; i < num_cols; i++)
 		printf(" %zu", cols[i].width);
@@ -932,15 +940,15 @@ pad(size_t n) {
 }
 
 static void
-print_item(const struct item *restrict p, size_t col, size_t spacing) {
+print_item(const struct item *restrict p, size_t col, size_t space) {
 	size_t empty;
 	size_t i;
 
-	empty = cols[col].width-p->width;
+	empty = cols[col].width - p->width;
 	if (cols[col].right_aligned)
 		pad(empty);
 	else
-		spacing += empty;
+		space += empty;
 
 	if (nuls)
 		for (i = 0; i < p->len; i++)
@@ -948,11 +956,11 @@ print_item(const struct item *restrict p, size_t col, size_t spacing) {
 	else
 		fputws(p->text, stdout);
 
-	pad(spacing);
+	pad(space);
 }
 
 static void
-print_cell(size_t row, size_t col, size_t spacing) {
+print_cell(size_t row, size_t col, size_t space) {
 	size_t i;
 
 	if (across)
@@ -961,9 +969,9 @@ print_cell(size_t row, size_t col, size_t spacing) {
 		i = col*num_rows + row;
 
 	if (i >= list_len)
-		pad(cols[col].width+spacing);
+		pad(cols[col].width+space);
 	else
-		print_item(&list[i], col, spacing);
+		print_item(&list[i], col, space);
 }
 
 static void
@@ -1007,7 +1015,7 @@ print_cols(void) {
 			for (j = 0; j < num_cols-1; j++)
 				print_cell(i, j, padding);
 
-			print_cell(i, j, leftover);
+			print_cell(i, j, surplus);
 			putwchar(L'\n');
 		}
 	}
@@ -1055,11 +1063,11 @@ xrealloc(void *p, size_t n) {
 
 static int
 xwcwidth(wchar_t c) {
-	int n;
+	int x;
 
-	n = wcwidth(c);
-	if (n == -1)
+	x = wcwidth(c);
+	if (x == -1)
 		return 0;
 
-	return n;
+	return x;
 }
